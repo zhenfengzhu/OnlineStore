@@ -1,0 +1,10 @@
+.next
+node_modules
+*.db
+*.db-journal
+logs
+.launcher
+.model-config.json
+.env
+.env*.local
+*.tsbuildinfo
