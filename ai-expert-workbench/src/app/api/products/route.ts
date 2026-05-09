@@ -97,3 +97,11 @@ export async function PATCH(request: Request) {
 
   return NextResponse.json({ product: toProductView(product) });
 }
+
+export async function DELETE(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const id = searchParams.get("id");
+  if (!id) return NextResponse.json({ error: "Missing ID" }, { status: 400 });
+  await prisma.product.delete({ where: { id } });
+  return NextResponse.json({ success: true });
+}

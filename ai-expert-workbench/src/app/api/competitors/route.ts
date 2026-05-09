@@ -12,3 +12,11 @@ export async function GET() {
 
   return NextResponse.json({ analyses: items.map(toCompetitorAnalysisView) });
 }
+
+export async function DELETE(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const id = searchParams.get("id");
+  if (!id) return NextResponse.json({ error: "Missing ID" }, { status: 400 });
+  await prisma.competitorAnalysis.delete({ where: { id } });
+  return NextResponse.json({ success: true });
+}

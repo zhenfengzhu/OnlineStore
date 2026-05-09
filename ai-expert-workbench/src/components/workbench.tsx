@@ -14,7 +14,9 @@ import {
   PackagePlus,
   Search,
   Sparkles,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Smartphone,
+  Trash2
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -37,6 +39,7 @@ import type {
   WorkflowType
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { MobileSimulator } from "@/components/mobile-simulator";
 
 type TabKey = "products" | "generate" | "calendar" | "assets" | "analysis" | "cover" | "settings";
 
@@ -67,7 +70,7 @@ type ModelConfigView = {
 const workflowOptions: Array<{ id: WorkflowType; label: string; description: string }> = [
   {
     id: "thirty_notes",
-    label: "30 篇笔记",
+    label: "3 篇笔记",
     description: "标题、封面、正文、标签、拍摄建议"
   },
   {
@@ -156,7 +159,7 @@ const defaultProduct = {
 type ProductFormState = typeof defaultProduct;
 
 const workflowDefaults: Record<WorkflowType, string> = {
-  thirty_notes: "请基于这个产品生成 30 篇小红书笔记，适合宠物玩具新店连续发布。",
+  thirty_notes: "请根据这个产品的卖点和目标人群，一次性帮我生成 3 篇不同角度的小红书种草图文笔记和排期。",
   content_calendar: "请为这个产品生成 30 天小红书内容日历，覆盖图文、短视频、测评、避坑和清单。",
   video_scripts: "请为这个产品生成 8 条小红书短视频脚本，适合手机拍摄。",
   support_scripts: "请为这个产品生成客服话术，覆盖售前、售后和常见异议。",
@@ -436,6 +439,7 @@ export function Workbench() {
   const [coverPrompt, setCoverPrompt] = useState("");
   const [coverImageUrl, setCoverImageUrl] = useState<string | null>(null);
   const [isGeneratingCover, setIsGeneratingCover] = useState(false);
+  const [previewNote, setPreviewNote] = useState<{ title: string; content: string } | null>(null);
 
   const selectedProduct = useMemo(
     () => products.find((product) => product.id === selectedProductId) ?? null,
@@ -723,6 +727,22 @@ export function Workbench() {
     }
   }
 
+  async function deleteItem(type: "products" | "assets" | "calendar" | "competitors" | "reviews", id: string) {
+    if (!confirm("确认删除？该操作不可恢复。")) return;
+    try {
+      const res = await fetch(`/api/${type}?id=${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("删除失败");
+      if (type === "products") setProducts((c) => c.filter((i) => i.id !== id));
+      if (type === "assets") setAssets((c) => c.filter((i) => i.id !== id));
+      if (type === "calendar") setCalendarItems((c) => c.filter((i) => i.id !== id));
+      if (type === "competitors") setCompetitors((c) => c.filter((i) => i.id !== id));
+      if (type === "reviews") setReviews((c) => c.filter((i) => i.id !== id));
+      setMessage("删除成功");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "删除失败");
+    }
+  }
+
   const tabs: NavItem[] = [
     { id: "products", label: "产品库", description: "维护商品资料", icon: PackagePlus },
     { id: "generate", label: "AI 生成", description: "创建内容资产", icon: Sparkles },
@@ -954,6 +974,9 @@ export function Workbench() {
                         >
                           用它生成
                         </Button>
+                        <Button size="sm" variant="ghost" className="text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={() => deleteItem("products", product.id)}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
                       </div>
                     ) : null}
                   </div>
@@ -1068,6 +1091,22 @@ export function Workbench() {
                     <Stat label="脚本" value={lastOutput.scripts.length} />
                     <Stat label="话术" value={lastOutput.supportReplies.length} />
                   </div>
+                  {lastOutput.notes.length > 0 ? (
+                    <div className="pt-2">
+                      <Button
+                        variant="default"
+                        onClick={() =>
+                          setPreviewNote({
+                            title: lastOutput.notes[0].title,
+                            content: lastOutput.notes[0].body
+                          })
+                        }
+                      >
+                        <Smartphone className="h-4 w-4 mr-2" />
+                        真机预览首篇笔记
+                      </Button>
+                    </div>
+                  ) : null}
                 </div>
               )}
             </CardContent>
@@ -1160,6 +1199,9 @@ export function Workbench() {
                         placeholder="复盘结论"
                         onBlur={(event) => updateCalendarItem(item, { reviewNote: event.target.value })}
                       />
+                      <Button size="icon" variant="ghost" className="h-9 w-9 text-destructive hover:bg-destructive/10" onClick={() => deleteItem("calendar", item.id)}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
                     </td>
                   </tr>
                 ))}
@@ -1224,6 +1266,19 @@ export function Workbench() {
                     <Clipboard className="h-4 w-4" />
                     复制
                   </Button>
+                  {asset.type === "note" ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setPreviewNote({ title: asset.title, content: asset.body })}
+                    >
+                      <Smartphone className="h-4 w-4" />
+                      真机预览
+                    </Button>
+                  ) : null}
+                  <Button size="sm" variant="ghost" className="text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={() => deleteItem("assets", asset.id)}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
                 </div>
               </div>
             ))}
@@ -1255,7 +1310,10 @@ export function Workbench() {
             </CardHeader>
             <CardContent className="space-y-4">
               {competitors.map((item) => (
-                <div key={item.id} className="rounded-lg border p-4">
+                <div key={item.id} className="relative rounded-lg border p-4 group">
+                  <Button size="icon" variant="ghost" className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:bg-destructive/10" onClick={() => deleteItem("competitors", item.id)}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
                   <div className="mb-2 text-xs text-muted-foreground">{formatDate(item.createdAt)}</div>
                   <h3 className="font-semibold">{item.title}</h3>
                   <pre className="mt-3 whitespace-pre-wrap rounded-md bg-muted/60 p-3 text-sm text-muted-foreground">
@@ -1288,7 +1346,10 @@ export function Workbench() {
             </CardHeader>
             <CardContent className="space-y-4">
               {reviews.map((item) => (
-                <div key={item.id} className="rounded-lg border p-4">
+                <div key={item.id} className="relative rounded-lg border p-4 group">
+                  <Button size="icon" variant="ghost" className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:bg-destructive/10" onClick={() => deleteItem("reviews", item.id)}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
                   <div className="mb-2 text-xs text-muted-foreground">{formatDate(item.createdAt)}</div>
                   <h3 className="font-semibold">{item.title}</h3>
                   <pre className="mt-3 whitespace-pre-wrap rounded-md bg-muted/60 p-3 text-sm text-muted-foreground">
@@ -1474,6 +1535,13 @@ export function Workbench() {
       ) : null}
         </section>
       </div>
+
+      <MobileSimulator
+        isOpen={!!previewNote}
+        onClose={() => setPreviewNote(null)}
+        title={previewNote?.title ?? ""}
+        content={previewNote?.content ?? ""}
+      />
     </main>
   );
 }

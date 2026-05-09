@@ -277,9 +277,9 @@ function getWorkflowPrompt(type: WorkflowType) {
 
   const prompts: Record<WorkflowType, string> = {
     thirty_notes: `${base}
-任务：基于产品资料生成 30 篇小红书笔记。
-notes 必须正好 30 条，每条包含标题（必须提供3-5个AB测试备选标题，用斜杠/分隔）、封面文案（强调首图吸睛点）、正文、标签、拍摄建议、目标人群和风险提示。
-calendar 可同步返回 30 天排期，scripts/supportReplies 可为空数组。`,
+任务：基于产品资料生成 3 篇小红书笔记。
+notes 必须正好 3 条，每条包含标题（必须提供3-5个AB测试备选标题，用斜杠/分隔）、封面文案（强调首图吸睛点）、正文、标签、拍摄建议、目标人群和风险提示。
+calendar 可同步返回 3 天排期，scripts/supportReplies 可为空数组。`,
     content_calendar: `${base}
 任务：生成 30 天内容发布日历。
 calendar 必须正好 30 条，覆盖测评、避坑、清单、场景、对比、短视频、评论区回应。

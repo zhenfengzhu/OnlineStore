@@ -8,8 +8,8 @@ $launcherDir = Join-Path $projectRoot ".launcher"
 $pidFile = Join-Path $launcherDir "next.pid"
 $outLog = Join-Path $launcherDir "server.out.log"
 $errLog = Join-Path $launcherDir "server.err.log"
-$port = 3000
-$url = "http://127.0.0.1:$port"
+$port = 3001
+$url = "http://localhost:$port"
 
 New-Item -ItemType Directory -Force -Path $launcherDir | Out-Null
 
