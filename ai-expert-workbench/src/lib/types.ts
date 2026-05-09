@@ -57,6 +57,8 @@ export type ProductView = {
   suitableForKoc: string | null;
   cautions: string | null;
   scenes: string | null;
+  emotionalValue: string | null;
+  userPersona: string | null;
   createdAt: string;
 };
 
@@ -100,7 +102,9 @@ export type WorkflowType =
   | "product_scoring"
   | "product_page"
   | "comment_ops"
-  | "viral_reuse";
+  | "viral_reuse"
+  | "seo_keywords"
+  | "ad_strategy";
 
 export type GeneratedNote = {
   title: string;
@@ -150,6 +154,8 @@ export type CompetitorAnalysisView = {
   userQuestions: string | null;
   weakness: string | null;
   opportunities: string | null;
+  coverAnalysis: string | null;
+  hotComments: string | null;
   result: string;
   createdAt: string;
 };

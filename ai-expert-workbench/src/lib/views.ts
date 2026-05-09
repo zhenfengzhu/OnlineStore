@@ -37,6 +37,8 @@ export function toProductView(product: Product): ProductView {
     suitableForKoc: product.suitableForKoc,
     cautions: product.cautions,
     scenes: product.scenes,
+    emotionalValue: product.emotionalValue,
+    userPersona: product.userPersona,
     createdAt: product.createdAt.toISOString()
   };
 }
@@ -88,6 +90,8 @@ export function toCompetitorAnalysisView(item: CompetitorAnalysis): CompetitorAn
     userQuestions: item.userQuestions,
     weakness: item.weakness,
     opportunities: item.opportunities,
+    coverAnalysis: item.coverAnalysis,
+    hotComments: item.hotComments,
     result: item.result,
     createdAt: item.createdAt.toISOString()
   };

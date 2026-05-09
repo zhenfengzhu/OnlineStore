@@ -67,6 +67,8 @@ model Product {
   suitableForKoc String?
   cautions    String?
   scenes      String?
+  emotionalValue String?
+  userPersona String?
   createdAt   DateTime      @default(now())
   tasks       Task[]
   assets      ContentAsset[]
@@ -119,6 +121,8 @@ model CompetitorAnalysis {
   userQuestions String?
   weakness    String?
   opportunities String?
+  coverAnalysis String?
+  hotComments   String?
   result      String
   createdAt   DateTime @default(now())
 }

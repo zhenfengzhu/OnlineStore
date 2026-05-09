@@ -13,7 +13,8 @@ import {
   Settings,
   PackagePlus,
   Search,
-  Sparkles
+  Sparkles,
+  Image as ImageIcon
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -37,7 +38,7 @@ import type {
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-type TabKey = "products" | "generate" | "calendar" | "assets" | "analysis" | "settings";
+type TabKey = "products" | "generate" | "calendar" | "assets" | "analysis" | "cover" | "settings";
 
 type NavItem = {
   id: TabKey;
@@ -113,6 +114,16 @@ const workflowOptions: Array<{ id: WorkflowType; label: string; description: str
     id: "viral_reuse",
     label: "爆款复用",
     description: "变体选题、A/B 标题、追发计划"
+  },
+  {
+    id: "seo_keywords",
+    label: "SEO 词库挖掘",
+    description: "长尾词预测与搜索卡位"
+  },
+  {
+    id: "ad_strategy",
+    label: "投流辅助决策",
+    description: "计算互动率，给出投放建议"
   }
 ];
 
@@ -137,7 +148,9 @@ const defaultProduct = {
   suitableForAds: "",
   suitableForKoc: "",
   cautions: "",
-  scenes: ""
+  scenes: "",
+  emotionalValue: "",
+  userPersona: ""
 };
 
 type ProductFormState = typeof defaultProduct;
@@ -154,7 +167,9 @@ const workflowDefaults: Record<WorkflowType, string> = {
   product_page: "请优化这个产品的小红书店铺商品页，包括商品标题、主图卖点、详情页结构和 FAQ。",
   comment_ops: "请为这个产品设计评论区运营方案，包括置顶评论、用户质疑回复和问链接回复。",
   viral_reuse:
-    "请把这条表现好的内容复用放大，请粘贴原笔记内容和数据：\n标题：\n正文：\n曝光：\n点赞：\n收藏：\n评论：\n进店：\n成交："
+    "请把这条表现好的内容复用放大，请粘贴原笔记内容和数据：\n标题：\n正文：\n曝光：\n点赞：\n收藏：\n评论：\n进店：\n成交：",
+  seo_keywords: "请挖掘这个产品类别的小红书搜索热词与长尾词，推荐适合布局的蓝海词。",
+  ad_strategy: "请复盘这篇初发布笔记的数据，评估是否值得投流放大：\n发布时长：24小时\n阅读量（小眼睛）：\n点赞：\n收藏：\n评论："
 };
 
 const contentGoals = ["拉新曝光", "种草收藏", "评论互动", "引导进店", "促成下单", "老客复购", "清库存"];
@@ -290,7 +305,9 @@ function productToForm(product: ProductView): ProductFormState {
     suitableForAds: product.suitableForAds ?? "",
     suitableForKoc: product.suitableForKoc ?? "",
     cautions: product.cautions ?? "",
-    scenes: product.scenes ?? ""
+    scenes: product.scenes ?? "",
+    emotionalValue: product.emotionalValue ?? "",
+    userPersona: product.userPersona ?? ""
   };
 }
 
@@ -359,6 +376,8 @@ function ProductBattleCardForm({
         ["mainSellingPoint", "主推卖点", "一句话说明最应该反复打的卖点"],
         ["targetAudience", "目标人群", "例如：新手养猫人、上班族养狗人、精力旺盛幼犬家庭"],
         ["painPoints", "用户痛点", "例如：宠物无聊拆家、玩具很快玩腻、担心材质和清洁"],
+        ["emotionalValue", "情绪价值", "例如：解压、陪伴、铲屎官的救赎、颜值治愈"],
+        ["userPersona", "博主人设", "例如：懂行的铲屎官、宠物测评达人、精致养宠人"],
         ["forbiddenWords", "禁止宣传词", "例如：绝对安全、永远咬不坏、治愈焦虑、保证爆单"],
         ["cautions", "注意事项", "例如：小型犬选择小号，玩耍时建议主人看护，定期清洁"],
         ["scenes", "适合拍摄场景", "例如：客厅互动、饭前消耗精力、上班族回家陪玩、猫咪追逐"]
@@ -414,6 +433,9 @@ export function Workbench() {
     model: "gpt-5.2",
     baseURL: ""
   });
+  const [coverPrompt, setCoverPrompt] = useState("");
+  const [coverImageUrl, setCoverImageUrl] = useState<string | null>(null);
+  const [isGeneratingCover, setIsGeneratingCover] = useState(false);
 
   const selectedProduct = useMemo(
     () => products.find((product) => product.id === selectedProductId) ?? null,
@@ -651,6 +673,33 @@ export function Workbench() {
     }));
   }
 
+  async function generateCover() {
+    setError(null);
+    setMessage(null);
+    setCoverImageUrl(null);
+    setIsGeneratingCover(true);
+
+    try {
+      const response = await fetch("/api/images", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: coverPrompt })
+      });
+      const data = (await response.json()) as { url?: string; error?: string };
+
+      if (!response.ok || !data.url) {
+        throw new Error(data.error ?? "图片生成失败。");
+      }
+
+      setCoverImageUrl(data.url);
+      setMessage("封面生成成功！");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "图片生成失败。");
+    } finally {
+      setIsGeneratingCover(false);
+    }
+  }
+
   async function saveModelSettings() {
     setError(null);
     setMessage(null);
@@ -680,6 +729,7 @@ export function Workbench() {
     { id: "calendar", label: "内容日历", description: "查看发布排期", icon: CalendarDays },
     { id: "assets", label: "资产库", description: "复制与导出内容", icon: FolderOpen },
     { id: "analysis", label: "竞品/复盘", description: "沉淀分析记录", icon: BarChart3 },
+    { id: "cover", label: "封面生成", description: "AI 生成笔记首图", icon: ImageIcon },
     { id: "settings", label: "模型设置", description: "切换模型供应商", icon: Settings }
   ];
 
@@ -1258,6 +1308,59 @@ export function Workbench() {
                   }
                 />
               ) : null}
+            </CardContent>
+          </Card>
+        </section>
+      ) : null}
+
+      {activeTab === "cover" ? (
+        <section className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <ImageIcon className="h-4 w-4" />
+                AI 封面生成
+              </CardTitle>
+              <CardDescription>调用 DALL-E 3 生成 3:4 比例的竖屏小红书首图。</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <label className="space-y-1 text-sm">
+                <span className="font-medium">画面描述</span>
+                <Textarea
+                  className="min-h-32"
+                  value={coverPrompt}
+                  onChange={(event) => setCoverPrompt(event.target.value)}
+                  placeholder="例如：一个可爱的小猫正在玩纸箱，明亮温馨的家居环境，高质感摄影，适合小红书封面。"
+                />
+              </label>
+              <Button disabled={isGeneratingCover || !coverPrompt.trim()} onClick={generateCover}>
+                {isGeneratingCover ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                生成图片
+              </Button>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>生成结果</CardTitle>
+              <CardDescription>图片不会保存在服务器，请及时下载或右键复制。</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {coverImageUrl ? (
+                <div className="space-y-4">
+                  <div className="overflow-hidden rounded-lg border bg-muted flex items-center justify-center p-2">
+                    <img src={coverImageUrl} alt="生成的封面" className="max-h-[600px] object-contain rounded" />
+                  </div>
+                  <Button onClick={() => window.open(coverImageUrl, "_blank")}>
+                    <Download className="h-4 w-4" />
+                    查看大图并保存
+                  </Button>
+                </div>
+              ) : (
+                <EmptyState
+                  title="等待生成"
+                  description="在左侧输入描述并点击生成，这里将展示生成的 3:4 比例封面图。"
+                />
+              )}
             </CardContent>
           </Card>
         </section>

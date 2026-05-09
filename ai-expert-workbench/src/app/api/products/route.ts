@@ -27,6 +27,8 @@ type ProductBody = {
   suitableForKoc?: string;
   cautions?: string;
   scenes?: string;
+  emotionalValue?: string;
+  userPersona?: string;
 };
 
 function productData(body: ProductBody) {
@@ -51,7 +53,9 @@ function productData(body: ProductBody) {
     suitableForAds: body.suitableForAds?.trim() || null,
     suitableForKoc: body.suitableForKoc?.trim() || null,
     cautions: body.cautions?.trim() || null,
-    scenes: body.scenes?.trim() || null
+    scenes: body.scenes?.trim() || null,
+    emotionalValue: body.emotionalValue?.trim() || null,
+    userPersona: body.userPersona?.trim() || null
   };
 }
 

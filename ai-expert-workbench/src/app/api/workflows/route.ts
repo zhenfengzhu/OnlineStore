@@ -16,7 +16,9 @@ const workflowTypes: WorkflowType[] = [
   "product_scoring",
   "product_page",
   "comment_ops",
-  "viral_reuse"
+  "viral_reuse",
+  "seo_keywords",
+  "ad_strategy"
 ];
 
 type WorkflowBody = {
@@ -91,7 +93,9 @@ function buildProductPrompt(product: ProductView | null, userInput: string) {
     `是否适合投流：${product.suitableForAds ?? "未判断"}`,
     `是否适合达人合作：${product.suitableForKoc ?? "未判断"}`,
     `注意事项：${product.cautions ?? "未填写"}`,
-    `适合场景：${product.scenes ?? "未填写"}`
+    `适合场景：${product.scenes ?? "未填写"}`,
+    `情绪价值：${product.emotionalValue ?? "未填写"}`,
+    `博主人设：${product.userPersona ?? "未填写"}`
   ].join("\n");
 }
 
