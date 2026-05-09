@@ -1,4 +1,4 @@
-Add-Type -AssemblyName System.Windows.Forms
+﻿Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
 $ErrorActionPreference = "Stop"
@@ -50,13 +50,17 @@ function Run-Command {
     [string]$Arguments
   )
 
-  $process = Start-Process `
-    -FilePath $FilePath `
-    -ArgumentList $Arguments `
-    -WorkingDirectory $projectRoot `
-    -NoNewWindow `
-    -Wait `
-    -PassThru
+  $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+  $startInfo.FileName = "cmd.exe"
+  $startInfo.Arguments = "/d /c $FilePath $Arguments"
+  $startInfo.WorkingDirectory = $projectRoot
+  $startInfo.UseShellExecute = $false
+  $startInfo.CreateNoWindow = $true
+
+  $process = New-Object System.Diagnostics.Process
+  $process.StartInfo = $startInfo
+  [void]$process.Start()
+  $process.WaitForExit()
 
   return $process.ExitCode
 }
@@ -105,14 +109,16 @@ function Start-Workbench {
     Set-Status "状态：正在启动项目..."
     Append-Log "执行 npm run dev -- -p $port"
 
-    $process = Start-Process `
-      -FilePath "npm.cmd" `
-      -ArgumentList "run", "dev", "--", "-p", "$port" `
-      -WorkingDirectory $projectRoot `
-      -WindowStyle Hidden `
-      -RedirectStandardOutput $outLog `
-      -RedirectStandardError $errLog `
-      -PassThru
+    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $startInfo.FileName = "cmd.exe"
+    $startInfo.Arguments = "/d /s /c `"npm.cmd run dev -- -p $port > `"`"$outLog`"`" 2> `"`"$errLog`"`"`""
+    $startInfo.WorkingDirectory = $projectRoot
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = $startInfo
+    [void]$process.Start()
 
     Set-Content -LiteralPath $pidFile -Value $process.Id
     Start-Sleep -Seconds 4
