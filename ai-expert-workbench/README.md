@@ -4,11 +4,13 @@
 
 ## 本地启动
 
+如果要在另一台电脑启动，请先看 [另一台电脑启动指南.md](./另一台电脑启动指南.md)。
+
 ### 点击启动
 
 在 Windows 上可以直接双击项目根目录的 `Start-Workbench.bat`，打开启动器后点击“启动项目”。
 
-启动器会自动执行数据库初始化，并在项目启动后打开 `http://127.0.0.1:3000`。
+启动器会自动执行数据库初始化，并在项目启动后打开 `http://localhost:3001`。
 
 ### 命令启动
 
@@ -17,10 +19,10 @@ cd ai-expert-workbench
 copy .env.example .env
 npm install
 npm run db:init
-npm run dev
+npm run dev -- -p 3001
 ```
 
-然后打开 `http://localhost:3000`。
+然后打开 `http://localhost:3001`。
 
 ## 已实现模块
 
