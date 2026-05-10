@@ -7,130 +7,31 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model ExpertRole {
-  id           String      @id
-  name         String      @unique
-  description  String
-  systemPrompt String
-  enabled      Boolean     @default(true)
-  runs         ExpertRun[]
-}
-
-model Task {
-  id              String      @id @default(cuid())
-  title           String
-  userInput       String
-  selectedRoleIds String
-  finalSummary    String?
-  workflowType    String      @default("expert")
-  productId       String?
-  createdAt       DateTime    @default(now())
-  runs            ExpertRun[]
-  product         Product?    @relation(fields: [productId], references: [id], onDelete: SetNull)
-}
-
-model ExpertRun {
-  id        String     @id @default(cuid())
-  taskId    String
-  roleId    String
-  output    String?
-  status    String
-  error     String?
-  createdAt DateTime   @default(now())
-  task      Task       @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  role      ExpertRole @relation(fields: [roleId], references: [id])
-
-  @@index([taskId])
-  @@index([roleId])
-}
-
-model Product {
-  id          String        @id @default(cuid())
-  name        String
-  category    String
-  targetPet   String
-  price       String?
-  costPrice   String?
-  salePrice   String?
-  stock       String?
-  shippingTime String?
-  material    String?
-  size        String?
-  sellingPoints String
-  mainSellingPoint String?
-  targetAudience String?
-  painPoints  String?
-  forbiddenWords String?
-  competitorPrice String?
-  differentiation String?
-  suitableForAds String?
-  suitableForKoc String?
-  cautions    String?
-  scenes      String?
-  emotionalValue String?
-  userPersona String?
-  createdAt   DateTime      @default(now())
-  tasks       Task[]
-  assets      ContentAsset[]
-  calendarItems CalendarItem[]
-}
-
 model ContentAsset {
-  id          String    @id @default(cuid())
-  productId   String?
+  id          String   @id @default(cuid())
   type        String
   title       String
   body        String
   tags        String?
   source      String
-  createdAt   DateTime  @default(now())
-  product     Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
+  parentId    String?
+  variantType String?
+  createdAt   DateTime @default(now())
 
-  @@index([productId])
   @@index([type])
+  @@index([parentId])
 }
 
 model CalendarItem {
-  id          String    @id @default(cuid())
-  productId   String?
-  day         Int
-  topic       String
-  format      String
-  angle       String
-  assetTitle  String?
-  goal        String?
-  publishAt   String?
-  noteUrl     String?
-  metrics     String?
-  reviewNote  String?
-  status      String    @default("planned")
-  createdAt   DateTime  @default(now())
-  product     Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
+  id         String   @id @default(cuid())
+  day        Int
+  topic      String
+  format     String
+  angle      String
+  assetTitle String?
+  goal       String?
+  status     String   @default("planned")
+  createdAt  DateTime @default(now())
 
-  @@index([productId])
   @@index([day])
-}
-
-model CompetitorAnalysis {
-  id          String   @id @default(cuid())
-  title       String
-  competitorName String?
-  price       String?
-  noteText    String
-  sellingPoints String?
-  userQuestions String?
-  weakness    String?
-  opportunities String?
-  coverAnalysis String?
-  hotComments   String?
-  result      String
-  createdAt   DateTime @default(now())
-}
-
-model DataReview {
-  id          String   @id @default(cuid())
-  title       String
-  metrics     String
-  result      String
-  createdAt   DateTime @default(now())
 }

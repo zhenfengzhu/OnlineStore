@@ -1,37 +1,13 @@
 import OpenAI from "openai";
-import type { ExpertRoleConfig } from "@/lib/experts";
 import { getActiveModelConfig } from "@/lib/model-providers";
 import type {
-  CoordinatorStructuredOutput,
-  ExpertStructuredOutput,
-  ProductView,
+  PrePublishCheckOutput,
+  RewriteMode,
+  TitleStyle,
+  TitleWorkshopOutput,
   WorkflowOutput,
   WorkflowType
 } from "@/lib/types";
-
-const expertSchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    summary: { type: "string" },
-    keyPoints: { type: "array", items: { type: "string" } },
-    actionItems: { type: "array", items: { type: "string" } },
-    draftContent: { type: "string" },
-    cautions: { type: "array", items: { type: "string" } }
-  },
-  required: ["summary", "keyPoints", "actionItems", "draftContent", "cautions"]
-} as const;
-
-const coordinatorSchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    title: { type: "string" },
-    finalPlanMarkdown: { type: "string" },
-    nextActions: { type: "array", items: { type: "string" } }
-  },
-  required: ["title", "finalPlanMarkdown", "nextActions"]
-} as const;
 
 const workflowSchema = {
   type: "object",
@@ -94,30 +70,71 @@ const workflowSchema = {
         required: ["title", "hook", "shots", "voiceover", "ending"]
       }
     },
-    supportReplies: {
+    nextActions: { type: "array", items: { type: "string" } }
+  },
+  required: ["summary", "notes", "calendar", "scripts", "nextActions"]
+} as const;
+
+const rewriteSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    title: { type: "string" },
+    body: { type: "string" },
+    summary: { type: "string" }
+  },
+  required: ["title", "body", "summary"]
+} as const;
+
+const titleWorkshopSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    summary: { type: "string" },
+    titles: {
       type: "array",
       items: {
         type: "object",
         additionalProperties: false,
         properties: {
-          scenario: { type: "string" },
-          reply: { type: "string" }
+          text: { type: "string" },
+          style: {
+            type: "string",
+            enum: ["emotional", "list", "warning", "contrast", "experience"]
+          },
+          intent: { type: "string" },
+          scoreHint: { type: "string" }
         },
-        required: ["scenario", "reply"]
+        required: ["text", "style", "intent", "scoreHint"]
       }
-    },
-    analysisMarkdown: { type: "string" },
-    nextActions: { type: "array", items: { type: "string" } }
+    }
   },
-  required: [
-    "summary",
-    "notes",
-    "calendar",
-    "scripts",
-    "supportReplies",
-    "analysisMarkdown",
-    "nextActions"
-  ]
+  required: ["summary", "titles"]
+} as const;
+
+const prePublishCheckSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    overallSuggestion: { type: "string" },
+    checks: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          name: { type: "string" },
+          status: {
+            type: "string",
+            enum: ["good", "watch", "fix"]
+          },
+          advice: { type: "string" }
+        },
+        required: ["name", "status", "advice"]
+      }
+    }
+  },
+  required: ["overallSuggestion", "checks"]
 } as const;
 
 function getClient() {
@@ -143,7 +160,7 @@ export function getModelConfigError() {
 
 function parseOutput<T>(rawText: string): T {
   if (!rawText) {
-    throw new Error("模型没有返回可解析内容。");
+    throw new Error("模型没有返回可解析的内容。");
   }
 
   const trimmed = rawText.trim();
@@ -167,183 +184,75 @@ JSON 对象必须符合 ${schemaName} 的字段要求；数组字段不能省略
 `;
 }
 
-export async function runExpert(role: ExpertRoleConfig, userInput: string) {
-  const client = getClient();
-  if (!shouldUseResponsesApi()) {
-    const response = await client.chat.completions.create({
-      model: getModel(),
-      messages: [
-        { role: "system", content: `${role.systemPrompt}\n${getJsonInstruction("expert_response")}` },
-        { role: "user", content: `用户任务：${userInput}` }
-      ],
-      response_format: { type: "json_object" }
-    });
-
-    return parseOutput<ExpertStructuredOutput>(response.choices[0]?.message?.content ?? "");
-  }
-
-  const response = await client.responses.create({
-    model: getModel(),
-    input: [
-      {
-        role: "system",
-        content: role.systemPrompt
-      },
-      {
-        role: "user",
-        content: `用户任务：${userInput}`
-      }
-    ],
-    text: {
-      format: {
-        type: "json_schema",
-        name: "expert_response",
-        schema: expertSchema,
-        strict: true
-      }
-    }
-  });
-
-  return parseOutput<ExpertStructuredOutput>(response.output_text);
-}
-
-export async function runCoordinator(
-  coordinator: ExpertRoleConfig,
-  userInput: string,
-  expertOutputs: Array<{ roleName: string; output: ExpertStructuredOutput }>
-) {
-  const client = getClient();
-  const payload = JSON.stringify(
-    {
-      userTask: userInput,
-      expertOutputs
-    },
-    null,
-    2
-  );
-
-  if (!shouldUseResponsesApi()) {
-    const response = await client.chat.completions.create({
-      model: getModel(),
-      messages: [
-        {
-          role: "system",
-          content: `${coordinator.systemPrompt}\n${getJsonInstruction("coordinator_response")}`
-        },
-        { role: "user", content: payload }
-      ],
-      response_format: { type: "json_object" }
-    });
-
-    return parseOutput<CoordinatorStructuredOutput>(response.choices[0]?.message?.content ?? "");
-  }
-
-  const response = await client.responses.create({
-    model: getModel(),
-    input: [
-      {
-        role: "system",
-        content: coordinator.systemPrompt
-      },
-      {
-        role: "user",
-        content: payload
-      }
-    ],
-    text: {
-      format: {
-        type: "json_schema",
-        name: "coordinator_response",
-        schema: coordinatorSchema,
-        strict: true
-      }
-    }
-  });
-
-  return parseOutput<CoordinatorStructuredOutput>(response.output_text);
-}
-
 function getWorkflowPrompt(type: WorkflowType) {
   const base = `
-你是小红书电商 AI 运营工作台的商业级内容专家，主场景是宠物玩具。
-所有输出必须真实、具体、可执行，避免夸大功效、医疗化表达和绝对化承诺。
-不要写“绝对安全”“永远咬不坏”“治愈焦虑”“保证爆单”。
-如果某个字段与当前任务无关，返回空数组或简短说明，但 JSON 结构必须完整。
-
-【小红书网感格式要求】
-1. 标题必须有极强的网感（例如使用“情绪词+痛点+解决方案”公式，或制造反差感），并且多使用Emoji。
-2. 正文必须符合小红书排版：单行不超过15个字，大量留白，多用恰当的Emoji穿插，语气要像闺蜜分享或懂行的测评专家（多用“姐妹们”、“绝绝子”、“真心建议”、“避坑”等口语化表达）。
+你是一个小红书内容生成专家，负责把用户给出的主题、卖点、受众和目标，转成可以直接使用的内容草稿。
+要求：
+1. 输出务必真实、具体、可执行，避免夸大、绝对化和医疗化表达。
+2. 语气贴近真实用户分享，保留平台内容感，但不要堆砌夸张词。
+3. 如果某个字段与当前任务关系不大，返回空数组，不要编造无关内容。
+4. 正文要有可读的段落结构，适合直接复制后二次修改。
 `;
 
   const prompts: Record<WorkflowType, string> = {
     thirty_notes: `${base}
-任务：基于产品资料生成 3 篇小红书笔记。
-notes 必须正好 3 条，每条包含标题（必须提供3-5个AB测试备选标题，用斜杠/分隔）、封面文案（强调首图吸睛点）、正文、标签、拍摄建议、目标人群和风险提示。
-calendar 可同步返回 3 天排期，scripts/supportReplies 可为空数组。`,
+任务：生成 3 篇小红书图文笔记。
+要求：
+1. notes 必须正好返回 3 条。
+2. 每条都要包含标题、封面文案、正文、标签、拍摄建议、适合人群和风险提醒。
+3. calendar 可以返回 3 条配套发布安排。
+4. scripts 返回空数组或与笔记相关的简单视频改编方向。`,
     content_calendar: `${base}
-任务：生成 30 天内容发布日历。
-calendar 必须正好 30 条，覆盖测评、避坑、清单、场景、对比、短视频、评论区回应。
-notes 可返回 5 条代表性笔记，scripts/supportReplies 可为空数组。`,
+任务：生成 30 天内容日历。
+要求：
+1. calendar 必须正好返回 30 条。
+2. 每条都要包含 day、topic、format、angle、assetTitle、goal。
+3. 选题要覆盖图文、短视频、测评、避坑、清单和生活场景。
+4. notes 最多返回 3 条代表性样稿，scripts 最多返回 2 条参考脚本。`,
     video_scripts: `${base}
-任务：生成小红书短视频脚本。
-scripts 至少 8 条，每条包含开头钩子、镜头、口播和结尾引导。
-notes 可返回对应标题，calendar/supportReplies 可为空数组。`,
-    support_scripts: `${base}
-任务：生成宠物玩具电商客服话术。
-supportReplies 至少 12 条，覆盖材质、安全、尺寸、清洁、发货、售后、不爱玩、退换货。
-notes/calendar/scripts 可为空数组。`,
-    competitor_analysis: `${base}
-任务：拆解用户粘贴的竞品小红书笔记。
-analysisMarkdown 必须包含：首图吸睛点提取、标题结构、卖点表达、用户痛点、爆款评论区分析（深入挖掘用户真实需求）、可借鉴方向、不可照抄风险。
-notes 返回 5 条可借鉴但不搬运的新选题。`,
-    data_review: `${base}
-任务：复盘小红书笔记数据。
-analysisMarkdown 必须包含数据判断、问题定位、下一篇优化、是否继续做同类选题、需要观察的指标。
-calendar 返回未来 7 天优化排期。`,
-    product_scoring: `${base}
-任务：做选品评分，判断这个宠物玩具是否值得主推。
-analysisMarkdown 必须包含：总分 100、内容展示性、痛点强度、决策门槛、复购可能、竞争强度、利润空间、售后风险、是否建议主推、建议价格带、主推人群、内容切入角度、风险点。
-notes/scripts/supportReplies/calendar 返回空数组。`,
-    product_page: `${base}
-任务：优化小红书店铺商品页。
-analysisMarkdown 必须包含：商品标题、主图卖点顺序、详情页结构、规格命名、价格锚点、FAQ、评价引导、活动话术、合规风险。
-supportReplies 返回至少 8 条商品页 FAQ。
-notes 返回 3 条可引流到商品页的笔记标题和正文。`,
-    comment_ops: `${base}
-任务：设计评论区高情商运营与引流方案。
-analysisMarkdown 必须包含：置顶评论、问链接回复（高情商引导加V或进店）、质疑回复、说贵回复、对比竞品回复、安全/材质回复、评论区二次种草话术、可转成笔记的新问题。
-supportReplies 至少 12 条，每条是一个评论场景和回复（要求防折叠、口语化）。`,
-    viral_reuse: `${base}
-任务：把一篇表现好的内容复用放大。
-analysisMarkdown 必须包含：爆点判断、可复用结构、标题 A/B、封面文案 A/B、图文改短视频、短视频改图文、评论问题改新笔记、后续 7 天追发计划。
-notes 返回 10 条同主题变体选题，calendar 返回 7 天追发排期。`,
-    seo_keywords: `${base}
-任务：挖掘小红书 SEO 搜索热词与长尾词。
-analysisMarkdown 必须包含：核心词检索意图分析、下拉框长尾词预测、蓝海词推荐、搜索卡位建议（图文还是视频）。
-notes 返回 3 条带搜索词话题的笔记选题，calendar/scripts/supportReplies 返回空数组。`,
-    ad_strategy: `${base}
-任务：基于笔记初期数据给出投流（薯条/聚光）决策辅助。
-analysisMarkdown 必须包含：互动率计算（赞藏评/阅读量）、转化漏斗诊断、对标行业优秀线（宠物赛道互动率建议 8% 以上）、投流决策（例如：放弃投流、投 100 元定向互动测试跑量）、下一步修改建议。
-notes/calendar/scripts/supportReplies 返回空数组。`
+任务：生成短视频脚本。
+要求：
+1. scripts 至少返回 8 条。
+2. 每条都要包含标题、开头钩子、镜头列表、口播和结尾引导。
+3. notes 可以返回 2-3 条对应视频标题的图文改写版本。
+4. calendar 可以返回 7 条短视频发布安排。`
   };
 
   return prompts[type];
 }
 
+function getRewritePrompt(mode: RewriteMode, assetType: string) {
+  const modePrompt: Record<RewriteMode, string> = {
+    more_conversational: "把内容改得更像真人在分享，口语一点，别像AI摘要。",
+    shorter: "压缩内容长度，保留核心信息，让它更利落好发。",
+    more_saveworthy: "增强干货感、清单感和可收藏性，但不要变成空泛套路。",
+    video_voiceover: "改成适合短视频口播的版本，句子更短，更容易一口气念出来。"
+  };
+
+  return `
+你是小红书内容编辑，擅长把现有内容做二次打磨。
+当前内容类型：${assetType}
+改写目标：${modePrompt[mode]}
+
+要求：
+1. 保留原内容的核心观点和信息密度。
+2. 不要编造原文没有的效果承诺。
+3. 标题也要一起优化，但不要和正文脱节。
+4. 只输出 JSON。
+`;
+}
+
 export async function runWorkflow({
   type,
-  product,
   userInput
 }: {
   type: WorkflowType;
-  product?: ProductView | null;
   userInput: string;
 }) {
   const client = getClient();
   const payload = JSON.stringify(
     {
       workflowType: type,
-      product,
       userInput
     },
     null,
@@ -391,14 +300,225 @@ export async function runWorkflow({
   return parseOutput<WorkflowOutput>(response.output_text);
 }
 
-export async function generateImage(prompt: string) {
+export async function runRewrite({
+  mode,
+  title,
+  content,
+  assetType
+}: {
+  mode: RewriteMode;
+  title: string;
+  content: string;
+  assetType: string;
+}) {
   const client = getClient();
-  const response = await client.images.generate({
-    model: "dall-e-3",
-    prompt,
-    n: 1,
-    size: "1024x1792",
-    response_format: "url"
+  const payload = JSON.stringify(
+    {
+      title,
+      content,
+      assetType,
+      rewriteMode: mode
+    },
+    null,
+    2
+  );
+
+  if (!shouldUseResponsesApi()) {
+    const response = await client.chat.completions.create({
+      model: getModel(),
+      messages: [
+        {
+          role: "system",
+          content: `${getRewritePrompt(mode, assetType)}\n${getJsonInstruction("rewrite_response")}`
+        },
+        { role: "user", content: payload }
+      ],
+      response_format: { type: "json_object" }
+    });
+
+    return parseOutput<{ title: string; body: string; summary: string }>(
+      response.choices[0]?.message?.content ?? ""
+    );
+  }
+
+  const response = await client.responses.create({
+    model: getModel(),
+    input: [
+      {
+        role: "system",
+        content: getRewritePrompt(mode, assetType)
+      },
+      {
+        role: "user",
+        content: payload
+      }
+    ],
+    text: {
+      format: {
+        type: "json_schema",
+        name: "rewrite_response",
+        schema: rewriteSchema,
+        strict: true
+      }
+    }
   });
-  return response.data[0].url;
+
+  return parseOutput<{ title: string; body: string; summary: string }>(response.output_text);
+}
+
+function getTitleWorkshopPrompt(preferredStyles: TitleStyle[]) {
+  return `
+你是小红书标题编辑，擅长把同一个主题拆成多种可点击、可收藏、可测试的标题版本。
+
+任务：
+1. 围绕用户给出的创作 brief 生成 12 个标题。
+2. 标题必须覆盖这些风格：${preferredStyles.join(", ")}。
+3. 每个标题都要标出 style、intent 和 scoreHint。
+
+要求：
+1. 标题要像真实创作者会发的，不要像广告语。
+2. 不要使用夸大承诺、医疗化、绝对化表达。
+3. 同一批标题要有明显差异，不要只是换几个词。
+4. scoreHint 用简短中文说明它更偏点击、收藏、互动还是转化。
+`;
+}
+
+export async function runTitleWorkshop({
+  userInput,
+  preferredStyles
+}: {
+  userInput: string;
+  preferredStyles: TitleStyle[];
+}) {
+  const client = getClient();
+  const payload = JSON.stringify(
+    {
+      userInput,
+      preferredStyles
+    },
+    null,
+    2
+  );
+
+  if (!shouldUseResponsesApi()) {
+    const response = await client.chat.completions.create({
+      model: getModel(),
+      messages: [
+        {
+          role: "system",
+          content: `${getTitleWorkshopPrompt(preferredStyles)}\n${getJsonInstruction("title_workshop_response")}`
+        },
+        { role: "user", content: payload }
+      ],
+      response_format: { type: "json_object" }
+    });
+
+    return parseOutput<TitleWorkshopOutput>(response.choices[0]?.message?.content ?? "");
+  }
+
+  const response = await client.responses.create({
+    model: getModel(),
+    input: [
+      {
+        role: "system",
+        content: getTitleWorkshopPrompt(preferredStyles)
+      },
+      {
+        role: "user",
+        content: payload
+      }
+    ],
+    text: {
+      format: {
+        type: "json_schema",
+        name: "title_workshop_response",
+        schema: titleWorkshopSchema,
+        strict: true
+      }
+    }
+  });
+
+  return parseOutput<TitleWorkshopOutput>(response.output_text);
+}
+
+function getPrePublishCheckPrompt(assetType: string) {
+  return `
+你是一个资深小红书内容编辑，负责在发布前帮创作者做最后一轮体检。
+当前内容类型：${assetType}
+
+请至少检查这些维度：
+1. 标题吸引力
+2. 开头钩子
+3. 收藏感/干货感
+4. 互动引导
+5. 风险表达
+6. 结构完整度
+
+要求：
+1. 每一项都要给出明确 status：good、watch 或 fix。
+2. advice 必须具体，告诉创作者哪里该改、怎么改。
+3. overallSuggestion 用 1-2 句话总结这条内容现在更适合直接发，还是建议再改一下。
+4. 只输出 JSON。
+`;
+}
+
+export async function runPrePublishCheck({
+  title,
+  content,
+  assetType
+}: {
+  title: string;
+  content: string;
+  assetType: string;
+}) {
+  const client = getClient();
+  const payload = JSON.stringify(
+    {
+      title,
+      content,
+      assetType
+    },
+    null,
+    2
+  );
+
+  if (!shouldUseResponsesApi()) {
+    const response = await client.chat.completions.create({
+      model: getModel(),
+      messages: [
+        {
+          role: "system",
+          content: `${getPrePublishCheckPrompt(assetType)}\n${getJsonInstruction("prepublish_check_response")}`
+        },
+        { role: "user", content: payload }
+      ],
+      response_format: { type: "json_object" }
+    });
+
+    return parseOutput<PrePublishCheckOutput>(response.choices[0]?.message?.content ?? "");
+  }
+
+  const response = await client.responses.create({
+    model: getModel(),
+    input: [
+      {
+        role: "system",
+        content: getPrePublishCheckPrompt(assetType)
+      },
+      {
+        role: "user",
+        content: payload
+      }
+    ],
+    text: {
+      format: {
+        type: "json_schema",
+        name: "prepublish_check_response",
+        schema: prePublishCheckSchema,
+        strict: true
+      }
+    }
+  });
+
+  return parseOutput<PrePublishCheckOutput>(response.output_text);
 }

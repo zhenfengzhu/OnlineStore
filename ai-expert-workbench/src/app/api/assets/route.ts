@@ -7,8 +7,7 @@ export const runtime = "nodejs";
 export async function GET() {
   const assets = await prisma.contentAsset.findMany({
     orderBy: { createdAt: "desc" },
-    take: 200,
-    include: { product: { select: { name: true } } }
+    take: 200
   });
 
   return NextResponse.json({ assets: assets.map(toAssetView) });

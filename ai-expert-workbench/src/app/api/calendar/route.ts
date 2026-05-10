@@ -7,8 +7,7 @@ export const runtime = "nodejs";
 export async function GET() {
   const items = await prisma.calendarItem.findMany({
     orderBy: [{ createdAt: "desc" }, { day: "asc" }],
-    take: 200,
-    include: { product: { select: { name: true } } }
+    take: 200
   });
 
   return NextResponse.json({ items: items.map(toCalendarItemView) });
@@ -18,10 +17,6 @@ export async function PATCH(request: Request) {
   const body = (await request.json()) as {
     id?: string;
     status?: string;
-    publishAt?: string;
-    noteUrl?: string;
-    metrics?: string;
-    reviewNote?: string;
   };
 
   if (!body.id) {
@@ -31,13 +26,8 @@ export async function PATCH(request: Request) {
   const item = await prisma.calendarItem.update({
     where: { id: body.id },
     data: {
-      status: body.status?.trim() || undefined,
-      publishAt: body.publishAt?.trim() || null,
-      noteUrl: body.noteUrl?.trim() || null,
-      metrics: body.metrics?.trim() || null,
-      reviewNote: body.reviewNote?.trim() || null
-    },
-    include: { product: { select: { name: true } } }
+      status: body.status?.trim() || undefined
+    }
   });
 
   return NextResponse.json({ item: toCalendarItemView(item) });

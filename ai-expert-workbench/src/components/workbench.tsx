@@ -1,22 +1,22 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
-  BarChart3,
   CalendarDays,
   Clipboard,
   Download,
   FileText,
   FolderOpen,
-  LayoutDashboard,
+  Gauge,
   Loader2,
+  MessageSquareQuote,
+  PanelsTopLeft,
   Settings,
-  PackagePlus,
-  Search,
-  Sparkles,
-  Image as ImageIcon,
   Smartphone,
-  Trash2
+  Sparkles,
+  Trash2,
+  Video,
+  WandSparkles
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -28,26 +28,29 @@ import {
   CardTitle
 } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
-import { TASK_TEMPLATES } from "@/lib/public-config";
+import { MobileSimulator } from "@/components/mobile-simulator";
+import { REWRITE_OPTIONS, TITLE_STYLE_OPTIONS, WORKFLOW_TEMPLATES } from "@/lib/public-config";
 import type {
+  AccountProfile,
   CalendarItemView,
-  CompetitorAnalysisView,
   ContentAssetView,
-  DataReviewView,
-  ProductView,
+  PrePublishCheckOutput,
+  RewriteMode,
+  StructuredBrief,
+  TitleStyle,
+  TitleWorkshopOutput,
   WorkflowOutput,
   WorkflowType
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { MobileSimulator } from "@/components/mobile-simulator";
 
-type TabKey = "products" | "generate" | "calendar" | "assets" | "analysis" | "cover" | "settings";
+type TabKey = "generate" | "calendar" | "assets" | "settings";
 
 type NavItem = {
   id: TabKey;
   label: string;
   description: string;
-  icon: typeof PackagePlus;
+  icon: typeof Sparkles;
 };
 
 type ModelConfigView = {
@@ -67,125 +70,47 @@ type ModelConfigView = {
   }>;
 };
 
-const workflowOptions: Array<{ id: WorkflowType; label: string; description: string }> = [
+const workflowOptions: Array<{ id: WorkflowType; label: string; description: string; icon: typeof Sparkles }> = [
   {
     id: "thirty_notes",
-    label: "3 篇笔记",
-    description: "标题、封面、正文、标签、拍摄建议"
+    label: "3篇笔记",
+    description: "标题、封面文案、正文、标签和拍摄建议",
+    icon: FileText
   },
   {
     id: "content_calendar",
-    label: "30 天日历",
-    description: "每天选题、内容形式、主推角度"
+    label: "30天日历",
+    description: "每日选题、形式、角度和内容目标",
+    icon: CalendarDays
   },
   {
     id: "video_scripts",
     label: "短视频脚本",
-    description: "钩子、镜头、口播、结尾引导"
-  },
-  {
-    id: "support_scripts",
-    label: "客服话术",
-    description: "售前、售后、材质、尺寸、退换货"
-  },
-  {
-    id: "competitor_analysis",
-    label: "竞品拆解",
-    description: "拆标题、卖点、痛点和可借鉴方向"
-  },
-  {
-    id: "data_review",
-    label: "数据复盘",
-    description: "定位问题，规划下一篇优化动作"
-  },
-  {
-    id: "product_scoring",
-    label: "选品评分",
-    description: "判断是否值得主推和风险点"
-  },
-  {
-    id: "product_page",
-    label: "商品页优化",
-    description: "标题、主图、详情页、FAQ"
-  },
-  {
-    id: "comment_ops",
-    label: "评论区运营",
-    description: "置顶评论、回复话术、二次种草"
-  },
-  {
-    id: "viral_reuse",
-    label: "爆款复用",
-    description: "变体选题、A/B 标题、追发计划"
-  },
-  {
-    id: "seo_keywords",
-    label: "SEO 词库挖掘",
-    description: "长尾词预测与搜索卡位"
-  },
-  {
-    id: "ad_strategy",
-    label: "投流辅助决策",
-    description: "计算互动率，给出投放建议"
+    description: "钩子、分镜、口播和结尾引导",
+    icon: Video
   }
 ];
 
-const defaultProduct = {
-  name: "",
-  category: "宠物玩具",
-  targetPet: "猫狗通用",
-  price: "",
-  costPrice: "",
-  salePrice: "",
-  stock: "",
-  shippingTime: "",
-  material: "",
-  size: "",
-  sellingPoints: "",
-  mainSellingPoint: "",
+const defaultBrief: StructuredBrief = {
+  topic: "",
   targetAudience: "",
-  painPoints: "",
+  contentForm: "图文笔记",
+  coreSellingPoint: "",
+  useScene: "",
+  emotionOrPainPoint: "",
+  toneStyle: "真实分享，像有经验的朋友在推荐",
   forbiddenWords: "",
-  competitorPrice: "",
-  differentiation: "",
-  suitableForAds: "",
-  suitableForKoc: "",
-  cautions: "",
-  scenes: "",
-  emotionalValue: "",
-  userPersona: ""
+  additionalNotes: ""
 };
 
-type ProductFormState = typeof defaultProduct;
-
-const workflowDefaults: Record<WorkflowType, string> = {
-  thirty_notes: "请根据这个产品的卖点和目标人群，一次性帮我生成 3 篇不同角度的小红书种草图文笔记和排期。",
-  content_calendar: "请为这个产品生成 30 天小红书内容日历，覆盖图文、短视频、测评、避坑和清单。",
-  video_scripts: "请为这个产品生成 8 条小红书短视频脚本，适合手机拍摄。",
-  support_scripts: "请为这个产品生成客服话术，覆盖售前、售后和常见异议。",
-  competitor_analysis: "请拆解下面这篇竞品小红书笔记，输出可借鉴方向，但不要搬运：\n\n",
-  data_review:
-    "请复盘这篇小红书笔记数据，并给出下一轮优化方案：\n曝光：\n点赞：\n收藏：\n评论：\n进店：\n成交：\n笔记标题：",
-  product_scoring: "请基于产品作战卡做选品评分，判断是否值得作为主推款。",
-  product_page: "请优化这个产品的小红书店铺商品页，包括商品标题、主图卖点、详情页结构和 FAQ。",
-  comment_ops: "请为这个产品设计评论区运营方案，包括置顶评论、用户质疑回复和问链接回复。",
-  viral_reuse:
-    "请把这条表现好的内容复用放大，请粘贴原笔记内容和数据：\n标题：\n正文：\n曝光：\n点赞：\n收藏：\n评论：\n进店：\n成交：",
-  seo_keywords: "请挖掘这个产品类别的小红书搜索热词与长尾词，推荐适合布局的蓝海词。",
-  ad_strategy: "请复盘这篇初发布笔记的数据，评估是否值得投流放大：\n发布时长：24小时\n阅读量（小眼睛）：\n点赞：\n收藏：\n评论："
-};
-
-const contentGoals = ["拉新曝光", "种草收藏", "评论互动", "引导进店", "促成下单", "老客复购", "清库存"];
-const calendarStatuses = ["planned", "shooting", "editing", "ready", "published", "reviewed", "rewrite", "scale"];
+const contentGoals = ["拉新曝光", "种草收藏", "评论互动", "引导进店", "提升转化"];
+const contentForms = ["图文笔记", "短视频脚本", "内容日历", "测评", "清单", "避坑"];
+const calendarStatuses = ["planned", "drafting", "ready", "published"];
 const statusLabels: Record<string, string> = {
   planned: "待规划",
-  shooting: "待拍摄",
-  editing: "待剪辑",
+  drafting: "撰写中",
   ready: "待发布",
-  published: "已发布",
-  reviewed: "已复盘",
-  rewrite: "需重写",
-  scale: "可放大"
+  published: "已发布"
 };
 
 function formatDate(value: string) {
@@ -218,14 +143,14 @@ function assetsToMarkdown(assets: ContentAssetView[]) {
 
 function assetsToCsv(assets: ContentAssetView[]) {
   return [
-    ["类型", "标题", "产品", "标签", "来源", "创建时间", "正文"].map(csvCell).join(","),
+    ["类型", "标题", "标签", "来源", "变体", "创建时间", "正文"].map(csvCell).join(","),
     ...assets.map((asset) =>
       [
         asset.type,
         asset.title,
-        asset.productName,
         asset.tags,
         asset.source,
+        asset.variantType,
         formatDate(asset.createdAt),
         asset.body
       ]
@@ -237,25 +162,55 @@ function assetsToCsv(assets: ContentAssetView[]) {
 
 function calendarToCsv(items: CalendarItemView[]) {
   return [
-    ["天数", "产品", "目标", "选题", "形式", "角度", "关联资产", "状态", "发布时间", "笔记链接", "数据", "复盘"].map(csvCell).join(","),
+    ["天数", "目标", "选题", "形式", "角度", "关联标题", "状态"].map(csvCell).join(","),
     ...items.map((item) =>
       [
         item.day,
-        item.productName,
         item.goal,
         item.topic,
         item.format,
         item.angle,
         item.assetTitle,
-        statusLabels[item.status] ?? item.status,
-        item.publishAt,
-        item.noteUrl,
-        item.metrics,
-        item.reviewNote
+        statusLabels[item.status] ?? item.status
       ]
         .map(csvCell)
         .join(",")
     )
+  ].join("\n");
+}
+
+const defaultAccountProfile: AccountProfile = {
+  accountName: "",
+  positioning: "",
+  targetAudience: "",
+  toneStyle: "",
+  preferredPhrases: "",
+  forbiddenPhrases: "",
+  brandBoundaries: ""
+};
+
+function buildPrompt(goal: string, brief: StructuredBrief, profile: AccountProfile) {
+  return [
+    "账号人设：",
+    `账号名称：${profile.accountName || "未填写"}`,
+    `账号定位：${profile.positioning || "未填写"}`,
+    `账号核心人群：${profile.targetAudience || "未填写"}`,
+    `账号固定语气：${profile.toneStyle || "未填写"}`,
+    `账号常用表达：${profile.preferredPhrases || "无"}`,
+    `账号禁用表达：${profile.forbiddenPhrases || "无"}`,
+    `品牌边界：${profile.brandBoundaries || "无"}`,
+    "",
+    "本次内容需求：",
+    `内容目标：${goal}`,
+    `主题：${brief.topic || "未填写"}`,
+    `目标人群：${brief.targetAudience || "未填写"}`,
+    `内容形式：${brief.contentForm || "未填写"}`,
+    `核心卖点：${brief.coreSellingPoint || "未填写"}`,
+    `使用场景：${brief.useScene || "未填写"}`,
+    `情绪/痛点：${brief.emotionOrPainPoint || "未填写"}`,
+    `语气风格：${brief.toneStyle || "未填写"}`,
+    `禁用表达：${brief.forbiddenWords || "无"}`,
+    `补充说明：${brief.additionalNotes || "无"}`
   ].join("\n");
 }
 
@@ -286,144 +241,13 @@ function EmptyState({
   );
 }
 
-function productToForm(product: ProductView): ProductFormState {
-  return {
-    name: product.name,
-    category: product.category,
-    targetPet: product.targetPet,
-    price: product.price ?? "",
-    costPrice: product.costPrice ?? "",
-    salePrice: product.salePrice ?? "",
-    stock: product.stock ?? "",
-    shippingTime: product.shippingTime ?? "",
-    material: product.material ?? "",
-    size: product.size ?? "",
-    sellingPoints: product.sellingPoints,
-    mainSellingPoint: product.mainSellingPoint ?? "",
-    targetAudience: product.targetAudience ?? "",
-    painPoints: product.painPoints ?? "",
-    forbiddenWords: product.forbiddenWords ?? "",
-    competitorPrice: product.competitorPrice ?? "",
-    differentiation: product.differentiation ?? "",
-    suitableForAds: product.suitableForAds ?? "",
-    suitableForKoc: product.suitableForKoc ?? "",
-    cautions: product.cautions ?? "",
-    scenes: product.scenes ?? "",
-    emotionalValue: product.emotionalValue ?? "",
-    userPersona: product.userPersona ?? ""
-  };
-}
-
-function ProductBattleCardForm({
-  value,
-  onChange
-}: {
-  value: ProductFormState;
-  onChange: (field: keyof ProductFormState, value: string) => void;
-}) {
-  return (
-    <>
-      <div className="grid gap-3 sm:grid-cols-2">
-        {[
-          ["name", "产品名"],
-          ["category", "类目"],
-          ["targetPet", "适合对象"],
-          ["price", "展示价格"],
-          ["costPrice", "成本价"],
-          ["salePrice", "建议售价"],
-          ["stock", "库存"],
-          ["shippingTime", "发货周期"],
-          ["material", "材质"],
-          ["size", "尺寸"]
-        ].map(([field, label]) => (
-          <label key={field} className="space-y-1 text-sm">
-            <span className="font-medium">{label}</span>
-            <input
-              className="h-10 w-full rounded-md border bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              value={value[field as keyof ProductFormState]}
-              onChange={(event) => onChange(field as keyof ProductFormState, event.target.value)}
-            />
-          </label>
-        ))}
-      </div>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <label className="space-y-1 text-sm">
-          <span className="font-medium">是否适合投流</span>
-          <select
-            className="h-10 w-full rounded-md border bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            value={value.suitableForAds}
-            onChange={(event) => onChange("suitableForAds", event.target.value)}
-          >
-            <option value="">未判断</option>
-            <option value="适合">适合</option>
-            <option value="谨慎">谨慎</option>
-            <option value="不适合">不适合</option>
-          </select>
-        </label>
-        <label className="space-y-1 text-sm">
-          <span className="font-medium">是否适合达人合作</span>
-          <select
-            className="h-10 w-full rounded-md border bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            value={value.suitableForKoc}
-            onChange={(event) => onChange("suitableForKoc", event.target.value)}
-          >
-            <option value="">未判断</option>
-            <option value="适合">适合</option>
-            <option value="谨慎">谨慎</option>
-            <option value="不适合">不适合</option>
-          </select>
-        </label>
-      </div>
-      {[
-        ["sellingPoints", "核心卖点", "例如：耐咬、可互动、适合消耗精力、颜色出片、容易清洁"],
-        ["mainSellingPoint", "主推卖点", "一句话说明最应该反复打的卖点"],
-        ["targetAudience", "目标人群", "例如：新手养猫人、上班族养狗人、精力旺盛幼犬家庭"],
-        ["painPoints", "用户痛点", "例如：宠物无聊拆家、玩具很快玩腻、担心材质和清洁"],
-        ["emotionalValue", "情绪价值", "例如：解压、陪伴、铲屎官的救赎、颜值治愈"],
-        ["userPersona", "博主人设", "例如：懂行的铲屎官、宠物测评达人、精致养宠人"],
-        ["forbiddenWords", "禁止宣传词", "例如：绝对安全、永远咬不坏、治愈焦虑、保证爆单"],
-        ["cautions", "注意事项", "例如：小型犬选择小号，玩耍时建议主人看护，定期清洁"],
-        ["scenes", "适合拍摄场景", "例如：客厅互动、饭前消耗精力、上班族回家陪玩、猫咪追逐"]
-      ].map(([field, label, placeholder]) => (
-        <label key={field} className="space-y-1 text-sm">
-          <span className="font-medium">{label}</span>
-          <Textarea
-            value={value[field as keyof ProductFormState]}
-            onChange={(event) => onChange(field as keyof ProductFormState, event.target.value)}
-            placeholder={placeholder}
-          />
-        </label>
-      ))}
-      <label className="space-y-1 text-sm">
-        <span className="font-medium">竞品价格与差异化</span>
-        <Textarea
-          value={`${value.competitorPrice}${value.differentiation ? `\n${value.differentiation}` : ""}`}
-          onChange={(event) => {
-            const [competitorPrice = "", ...rest] = event.target.value.split("\n");
-            onChange("competitorPrice", competitorPrice);
-            onChange("differentiation", rest.join("\n"));
-          }}
-          placeholder="第一行写竞品价格；后面写我方差异点"
-        />
-      </label>
-    </>
-  );
-}
-
 export function Workbench() {
-  const [activeTab, setActiveTab] = useState<TabKey>("products");
-  const [products, setProducts] = useState<ProductView[]>([]);
+  const [activeTab, setActiveTab] = useState<TabKey>("generate");
   const [assets, setAssets] = useState<ContentAssetView[]>([]);
   const [calendarItems, setCalendarItems] = useState<CalendarItemView[]>([]);
-  const [competitors, setCompetitors] = useState<CompetitorAnalysisView[]>([]);
-  const [reviews, setReviews] = useState<DataReviewView[]>([]);
-  const [selectedProductId, setSelectedProductId] = useState("");
   const [workflowType, setWorkflowType] = useState<WorkflowType>("thirty_notes");
-  const [workflowInput, setWorkflowInput] = useState(workflowDefaults.thirty_notes);
+  const [brief, setBrief] = useState<StructuredBrief>(defaultBrief);
   const [contentGoal, setContentGoal] = useState(contentGoals[1]);
-  const [productForm, setProductForm] = useState(defaultProduct);
-  const [editingProductId, setEditingProductId] = useState<string | null>(null);
-  const [editingProductForm, setEditingProductForm] = useState(defaultProduct);
   const [isLoading, setIsLoading] = useState(false);
   const [isBootstrapping, setIsBootstrapping] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -436,52 +260,29 @@ export function Workbench() {
     model: "gpt-5.2",
     baseURL: ""
   });
-  const [coverPrompt, setCoverPrompt] = useState("");
-  const [coverImageUrl, setCoverImageUrl] = useState<string | null>(null);
-  const [isGeneratingCover, setIsGeneratingCover] = useState(false);
+  const [accountProfile, setAccountProfile] = useState<AccountProfile>(defaultAccountProfile);
   const [previewNote, setPreviewNote] = useState<{ title: string; content: string } | null>(null);
-
-  const selectedProduct = useMemo(
-    () => products.find((product) => product.id === selectedProductId) ?? null,
-    [products, selectedProductId]
+  const [rewritingAssetId, setRewritingAssetId] = useState<string | null>(null);
+  const [titleWorkshop, setTitleWorkshop] = useState<TitleWorkshopOutput | null>(null);
+  const [preferredTitleStyles, setPreferredTitleStyles] = useState<TitleStyle[]>(
+    TITLE_STYLE_OPTIONS.map((item) => item.id)
   );
+  const [isGeneratingTitles, setIsGeneratingTitles] = useState(false);
+  const [checkingAssetId, setCheckingAssetId] = useState<string | null>(null);
+  const [prePublishChecks, setPrePublishChecks] = useState<Record<string, PrePublishCheckOutput>>({});
 
   async function loadAll() {
     setIsBootstrapping(true);
     setError(null);
     try {
-      const [productsRes, assetsRes, calendarRes, competitorsRes, reviewsRes] = await Promise.all([
-        fetch("/api/products"),
-        fetch("/api/assets"),
-        fetch("/api/calendar"),
-        fetch("/api/competitors"),
-        fetch("/api/reviews")
-      ]);
-      const [productsData, assetsData, calendarData, competitorsData, reviewsData] =
-        await Promise.all([
-          productsRes.json(),
-          assetsRes.json(),
-          calendarRes.json(),
-          competitorsRes.json(),
-          reviewsRes.json()
-        ]);
+      const [assetsRes, calendarRes] = await Promise.all([fetch("/api/assets"), fetch("/api/calendar")]);
+      const [assetsData, calendarData] = await Promise.all([assetsRes.json(), calendarRes.json()]);
 
-      if (!productsRes.ok) throw new Error(productsData.error ?? "产品加载失败。");
-      if (!assetsRes.ok) throw new Error(assetsData.error ?? "资产加载失败。");
-      if (!calendarRes.ok) throw new Error(calendarData.error ?? "日历加载失败。");
-      if (!competitorsRes.ok) throw new Error(competitorsData.error ?? "竞品记录加载失败。");
-      if (!reviewsRes.ok) throw new Error(reviewsData.error ?? "复盘记录加载失败。");
+      if (!assetsRes.ok) throw new Error(assetsData.error ?? "内容资产加载失败。");
+      if (!calendarRes.ok) throw new Error(calendarData.error ?? "内容日历加载失败。");
 
-      const loadedProducts = (productsData.products ?? []) as ProductView[];
-      setProducts(loadedProducts);
       setAssets((assetsData.assets ?? []) as ContentAssetView[]);
       setCalendarItems((calendarData.items ?? []) as CalendarItemView[]);
-      setCompetitors((competitorsData.analyses ?? []) as CompetitorAnalysisView[]);
-      setReviews((reviewsData.reviews ?? []) as DataReviewView[]);
-
-      if (!selectedProductId && loadedProducts[0]) {
-        setSelectedProductId(loadedProducts[0].id);
-      }
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "数据加载失败。");
     } finally {
@@ -492,117 +293,124 @@ export function Workbench() {
   useEffect(() => {
     void loadAll();
     void loadModelConfig();
+    void loadAccountProfile();
   }, []);
 
   async function loadModelConfig() {
     try {
       const response = await fetch("/api/model-config");
-      const data = (await response.json()) as ModelConfigView;
-      if (response.ok) {
-        setModelConfig(data);
-        const activeProvider = data.providers.find((provider) => provider.id === data.activeProviderId);
-        setModelForm((current) => ({
-          ...current,
-          providerId: data.activeProviderId,
-          model: data.activeModel || activeProvider?.defaultModel || current.model,
-          baseURL: data.activeBaseURL || ""
-        }));
+      const data = (await response.json()) as ModelConfigView & { error?: string };
+      if (!response.ok) {
+        throw new Error(data.error ?? "模型配置加载失败。");
       }
-    } catch {
-      setModelConfig(null);
+
+      setModelConfig(data);
+      setModelForm((current) => ({
+        ...current,
+        providerId: data.activeProviderId,
+        model: data.activeModel,
+        baseURL: data.activeProviderId === "custom" ? data.activeBaseURL : ""
+      }));
+    } catch (configError) {
+      setError(configError instanceof Error ? configError.message : "模型配置加载失败。");
     }
   }
 
-  function updateProductField(field: keyof typeof defaultProduct, value: string) {
-    setProductForm((current) => ({
+  async function loadAccountProfile() {
+    try {
+      const response = await fetch("/api/account-profile");
+      const data = (await response.json()) as { profile?: AccountProfile; error?: string };
+      if (!response.ok || !data.profile) {
+        throw new Error(data.error ?? "账号设置加载失败。");
+      }
+
+      setAccountProfile(data.profile);
+    } catch (profileError) {
+      setError(profileError instanceof Error ? profileError.message : "账号设置加载失败。");
+    }
+  }
+
+  function updateBrief<K extends keyof StructuredBrief>(field: K, value: StructuredBrief[K]) {
+    setBrief((current) => ({ ...current, [field]: value }));
+  }
+
+  function applyTemplate(title: string) {
+    const template = WORKFLOW_TEMPLATES.find((item) => item.title === title);
+    if (!template) return;
+
+    setWorkflowType(template.workflowType);
+    setBrief(template.brief);
+  }
+
+  function updateAccountProfile<K extends keyof AccountProfile>(field: K, value: AccountProfile[K]) {
+    setAccountProfile((current) => ({ ...current, [field]: value }));
+  }
+
+  function selectProvider(providerId: string) {
+    const provider = modelConfig?.providers.find((item) => item.id === providerId);
+    if (!provider) return;
+
+    setModelForm((current) => ({
       ...current,
-      [field]: value
+      providerId,
+      model: provider.defaultModel,
+      baseURL: providerId === "custom" ? current.baseURL || "https://api.example.com/v1" : ""
     }));
   }
 
-  function updateEditingProductField(field: keyof ProductFormState, value: string) {
-    setEditingProductForm((current) => ({
-      ...current,
-      [field]: value
-    }));
-  }
-
-  async function createProduct() {
+  async function saveModelSettings() {
     setError(null);
     setMessage(null);
 
     try {
-      const response = await fetch("/api/products", {
+      const response = await fetch("/api/model-config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(productForm)
+        body: JSON.stringify(modelForm)
       });
-      const data = (await response.json()) as { product?: ProductView; error?: string };
-
-      if (!response.ok || !data.product) {
-        throw new Error(data.error ?? "产品保存失败。");
+      const data = (await response.json()) as ModelConfigView & { error?: string };
+      if (!response.ok) {
+        throw new Error(data.error ?? "模型配置保存失败。");
       }
 
-      setProducts((current) => [data.product as ProductView, ...current]);
-      setSelectedProductId(data.product.id);
-      setProductForm(defaultProduct);
-      setMessage("产品资料已保存。");
-    } catch (createError) {
-      setError(createError instanceof Error ? createError.message : "产品保存失败。");
+      setModelConfig(data);
+      setMessage(`已切换到 ${data.activeProviderName} / ${data.activeModel}`);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "模型配置保存失败。");
     }
   }
 
-  function startEditingProduct(product: ProductView) {
-    setEditingProductId(product.id);
-    setEditingProductForm(productToForm(product));
-    setSelectedProductId(product.id);
-  }
-
-  async function saveProductEdit() {
-    if (!editingProductId) {
-      return;
-    }
-
+  async function saveAccountProfileSettings() {
     setError(null);
     setMessage(null);
 
     try {
-      const response = await fetch("/api/products", {
-        method: "PATCH",
+      const response = await fetch("/api/account-profile", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: editingProductId,
-          ...editingProductForm
-        })
+        body: JSON.stringify(accountProfile)
       });
-      const data = (await response.json()) as { product?: ProductView; error?: string };
-
-      if (!response.ok || !data.product) {
-        throw new Error(data.error ?? "产品更新失败。");
+      const data = (await response.json()) as { profile?: AccountProfile; error?: string };
+      if (!response.ok || !data.profile) {
+        throw new Error(data.error ?? "账号设置保存失败。");
       }
 
-      setProducts((current) =>
-        current.map((product) => (product.id === data.product?.id ? data.product : product))
-      );
-      setSelectedProductId(data.product.id);
-      setEditingProductId(null);
-      setMessage("产品作战卡已更新。");
+      setAccountProfile(data.profile);
+      setMessage("账号人设已保存，后续生成会自动带上这些设定。");
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "产品更新失败。");
+      setError(saveError instanceof Error ? saveError.message : "账号设置保存失败。");
     }
   }
 
-  function selectWorkflow(type: WorkflowType) {
-    setWorkflowType(type);
-    setWorkflowInput(workflowDefaults[type]);
-    setLastOutput(null);
+  async function copyText(text: string) {
+    await navigator.clipboard.writeText(text);
+    setMessage("已复制到剪贴板。");
   }
 
-  async function runCommercialWorkflow() {
+  async function runWorkflow() {
+    setIsLoading(true);
     setError(null);
     setMessage(null);
-    setLastOutput(null);
-    setIsLoading(true);
 
     try {
       const response = await fetch("/api/workflows", {
@@ -610,10 +418,10 @@ export function Workbench() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           type: workflowType,
-          productId: selectedProductId || undefined,
-          userInput: `内容目标：${contentGoal}\n\n${workflowInput}`
+          userInput: buildPrompt(contentGoal, brief, accountProfile)
         })
       });
+
       const data = (await response.json()) as {
         output?: WorkflowOutput;
         persistence?: { assetCount: number; calendarCount: number };
@@ -629,7 +437,7 @@ export function Workbench() {
         `生成完成：新增 ${data.persistence?.assetCount ?? 0} 条内容资产，${data.persistence?.calendarCount ?? 0} 条日历。`
       );
       await loadAll();
-      setActiveTab(workflowType === "content_calendar" || workflowType === "data_review" ? "calendar" : "assets");
+      setActiveTab(workflowType === "content_calendar" ? "calendar" : "assets");
     } catch (workflowError) {
       setError(workflowError instanceof Error ? workflowError.message : "生成失败。");
     } finally {
@@ -637,119 +445,147 @@ export function Workbench() {
     }
   }
 
-  async function copyText(text: string) {
-    await navigator.clipboard.writeText(text);
-    setMessage("已复制到剪贴板。");
+  function toggleTitleStyle(style: TitleStyle) {
+    setPreferredTitleStyles((current) => {
+      if (current.includes(style)) {
+        return current.length === 1 ? current : current.filter((item) => item !== style);
+      }
+
+      return [...current, style];
+    });
   }
 
-  async function updateCalendarItem(
-    item: CalendarItemView,
-    patch: Partial<Pick<CalendarItemView, "status" | "publishAt" | "noteUrl" | "metrics" | "reviewNote">>
-  ) {
+  async function runTitleWorkshop() {
+    setIsGeneratingTitles(true);
+    setError(null);
+    setMessage(null);
+
+    try {
+      const response = await fetch("/api/title-workshop", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userInput: buildPrompt(contentGoal, brief, accountProfile),
+          preferredStyles: preferredTitleStyles
+        })
+      });
+      const data = (await response.json()) as { output?: TitleWorkshopOutput; error?: string };
+      if (!response.ok || !data.output) {
+        throw new Error(data.error ?? "标题生成失败。");
+      }
+
+      setTitleWorkshop(data.output);
+      setMessage("标题工坊已生成一组可直接测试的新标题。");
+    } catch (titleError) {
+      setError(titleError instanceof Error ? titleError.message : "标题生成失败。");
+    } finally {
+      setIsGeneratingTitles(false);
+    }
+  }
+
+  async function rewriteAsset(asset: ContentAssetView, mode: RewriteMode) {
+    setRewritingAssetId(asset.id);
+    setError(null);
+    setMessage(null);
+
+    try {
+      const response = await fetch("/api/rewrite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assetId: asset.id, mode })
+      });
+      const data = (await response.json()) as {
+        asset?: ContentAssetView;
+        summary?: string;
+        error?: string;
+      };
+
+      if (!response.ok || !data.asset) {
+        throw new Error(data.error ?? "改写失败。");
+      }
+
+      setAssets((current) => [data.asset as ContentAssetView, ...current]);
+      setMessage(data.summary ?? "已生成新的改写版本。");
+    } catch (rewriteError) {
+      setError(rewriteError instanceof Error ? rewriteError.message : "改写失败。");
+    } finally {
+      setRewritingAssetId(null);
+    }
+  }
+
+  async function runPrePublishCheck(asset: ContentAssetView) {
+    setCheckingAssetId(asset.id);
+    setError(null);
+    setMessage(null);
+
+    try {
+      const response = await fetch("/api/prepublish-check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assetId: asset.id })
+      });
+      const data = (await response.json()) as {
+        output?: PrePublishCheckOutput;
+        error?: string;
+      };
+
+      if (!response.ok || !data.output) {
+        throw new Error(data.error ?? "发布前检查失败。");
+      }
+
+      setPrePublishChecks((current) => ({ ...current, [asset.id]: data.output as PrePublishCheckOutput }));
+      setMessage("发布前检查已完成，可以直接看具体建议。");
+    } catch (checkError) {
+      setError(checkError instanceof Error ? checkError.message : "发布前检查失败。");
+    } finally {
+      setCheckingAssetId(null);
+    }
+  }
+
+  async function updateCalendarItem(item: CalendarItemView, status: string) {
     setError(null);
     try {
       const response = await fetch("/api/calendar", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: item.id, ...patch })
+        body: JSON.stringify({ id: item.id, status })
       });
       const data = (await response.json()) as { item?: CalendarItemView; error?: string };
       if (!response.ok || !data.item) {
         throw new Error(data.error ?? "日历更新失败。");
       }
+
       setCalendarItems((current) =>
         current.map((calendarItem) => (calendarItem.id === data.item?.id ? data.item : calendarItem))
       );
-      setMessage("日历条目已更新。");
-    } catch (updateError) {
-      setError(updateError instanceof Error ? updateError.message : "日历更新失败。");
+      setMessage("日历状态已更新。");
+    } catch (calendarError) {
+      setError(calendarError instanceof Error ? calendarError.message : "日历更新失败。");
     }
   }
 
-  function selectProvider(providerId: string) {
-    const provider = modelConfig?.providers.find((item) => item.id === providerId);
-    setModelForm((current) => ({
-      ...current,
-      providerId,
-      model: provider?.defaultModel ?? current.model,
-      baseURL:
-        provider?.baseURL && provider.baseURL !== "CUSTOM_MODEL_BASE_URL" ? provider.baseURL : current.baseURL
-    }));
-  }
-
-  async function generateCover() {
-    setError(null);
-    setMessage(null);
-    setCoverImageUrl(null);
-    setIsGeneratingCover(true);
-
-    try {
-      const response = await fetch("/api/images", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: coverPrompt })
-      });
-      const data = (await response.json()) as { url?: string; error?: string };
-
-      if (!response.ok || !data.url) {
-        throw new Error(data.error ?? "图片生成失败。");
-      }
-
-      setCoverImageUrl(data.url);
-      setMessage("封面生成成功！");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "图片生成失败。");
-    } finally {
-      setIsGeneratingCover(false);
-    }
-  }
-
-  async function saveModelSettings() {
-    setError(null);
-    setMessage(null);
-
-    try {
-      const response = await fetch("/api/model-config", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(modelForm)
-      });
-      const data = (await response.json()) as ModelConfigView & { error?: string };
-
-      if (!response.ok) {
-        throw new Error(data.error ?? "模型设置保存失败。");
-      }
-
-      setModelConfig(data);
-      setMessage(`已切换到 ${data.activeProviderName} / ${data.activeModel}。`);
-    } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "模型设置保存失败。");
-    }
-  }
-
-  async function deleteItem(type: "products" | "assets" | "calendar" | "competitors" | "reviews", id: string) {
+  async function deleteItem(type: "assets" | "calendar", id: string) {
     if (!confirm("确认删除？该操作不可恢复。")) return;
+
     try {
-      const res = await fetch(`/api/${type}?id=${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("删除失败");
-      if (type === "products") setProducts((c) => c.filter((i) => i.id !== id));
-      if (type === "assets") setAssets((c) => c.filter((i) => i.id !== id));
-      if (type === "calendar") setCalendarItems((c) => c.filter((i) => i.id !== id));
-      if (type === "competitors") setCompetitors((c) => c.filter((i) => i.id !== id));
-      if (type === "reviews") setReviews((c) => c.filter((i) => i.id !== id));
-      setMessage("删除成功");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "删除失败");
+      const response = await fetch(`/api/${type}?id=${id}`, { method: "DELETE" });
+      const data = (await response.json()) as { success?: boolean; error?: string };
+      if (!response.ok) {
+        throw new Error(data.error ?? "删除失败。");
+      }
+
+      if (type === "assets") setAssets((current) => current.filter((item) => item.id !== id));
+      if (type === "calendar") setCalendarItems((current) => current.filter((item) => item.id !== id));
+      setMessage("删除成功。");
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "删除失败。");
     }
   }
 
   const tabs: NavItem[] = [
-    { id: "products", label: "产品库", description: "维护商品资料", icon: PackagePlus },
-    { id: "generate", label: "AI 生成", description: "创建内容资产", icon: Sparkles },
-    { id: "calendar", label: "内容日历", description: "查看发布排期", icon: CalendarDays },
-    { id: "assets", label: "资产库", description: "复制与导出内容", icon: FolderOpen },
-    { id: "analysis", label: "竞品/复盘", description: "沉淀分析记录", icon: BarChart3 },
-    { id: "cover", label: "封面生成", description: "AI 生成笔记首图", icon: ImageIcon },
+    { id: "generate", label: "AI生成", description: "结构化创作输入", icon: Sparkles },
+    { id: "calendar", label: "内容日历", description: "查看排期与主题", icon: CalendarDays },
+    { id: "assets", label: "资产库", description: "复制、预览与二改", icon: FolderOpen },
     { id: "settings", label: "模型设置", description: "切换模型供应商", icon: Settings }
   ];
 
@@ -757,22 +593,23 @@ export function Workbench() {
   const ActiveIcon = activeNav.icon;
 
   return (
-    <main className="min-h-screen">
-      <div className="mx-auto grid w-full max-w-[1500px] gap-5 px-4 py-4 lg:grid-cols-[280px_1fr] lg:px-6">
-        <aside className="lg:sticky lg:top-4 lg:h-[calc(100vh-2rem)]">
-          <div className="flex h-full flex-col rounded-lg border bg-card shadow-sm">
-            <div className="border-b p-5">
-              <div className="flex items-center gap-2">
-                <LayoutDashboard className="h-5 w-5 text-primary" aria-hidden />
-                <Badge>商业实用版 V1</Badge>
+    <main className="min-h-screen bg-background">
+      <div className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-6 lg:flex-row lg:px-6">
+        <aside className="lg:sticky lg:top-6 lg:h-[calc(100vh-3rem)] lg:w-72 lg:shrink-0">
+          <div className="rounded-2xl border bg-card p-4 shadow-sm">
+            <div className="mb-6">
+              <div className="flex items-center gap-3">
+                <div className="rounded-xl bg-primary/10 p-2 text-primary">
+                  <Sparkles className="h-5 w-5" />
+                </div>
+                <div>
+                  <div className="font-semibold">内容生成工作台</div>
+                  <p className="text-sm text-muted-foreground">更像创作者在用，而不是在手写 prompt</p>
+                </div>
               </div>
-              <h1 className="mt-3 text-lg font-semibold">小红书电商 AI 运营工作台</h1>
-              <p className="mt-2 text-sm text-muted-foreground">
-                产品资料、内容生成、日历排期和资产沉淀一体化。
-              </p>
             </div>
 
-            <nav className="flex gap-2 overflow-x-auto p-3 lg:flex-1 lg:flex-col lg:overflow-visible">
+            <nav className="space-y-2">
               {tabs.map((tab) => {
                 const Icon = tab.icon;
                 return (
@@ -780,759 +617,782 @@ export function Workbench() {
                     key={tab.id}
                     type="button"
                     className={cn(
-                      "flex min-w-40 items-start gap-3 rounded-md px-3 py-3 text-left transition-colors hover:bg-accent lg:min-w-0",
+                      "flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition-colors hover:bg-accent",
                       activeTab === tab.id && "bg-accent text-accent-foreground"
                     )}
                     onClick={() => setActiveTab(tab.id)}
                   >
                     <Icon className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-                    <span>
-                      <span className="block text-sm font-medium">{tab.label}</span>
-                      <span className="mt-0.5 block text-xs text-muted-foreground">{tab.description}</span>
-                    </span>
+                    <div>
+                      <div className="text-sm font-medium">{tab.label}</div>
+                      <div className="text-xs text-muted-foreground">{tab.description}</div>
+                    </div>
                   </button>
                 );
               })}
             </nav>
-
-            <div className="border-t p-4">
-              <div className="space-y-1 rounded-md bg-muted/50 p-3 text-xs text-muted-foreground">
-                <div className="font-medium text-foreground">当前模型</div>
-                <div>
-                  {modelConfig
-                    ? `${modelConfig.activeProviderName} / ${modelConfig.activeModel}`
-                    : "读取中"}
-                </div>
-                {modelConfig && !modelConfig.configured ? (
-                  <button
-                    type="button"
-                    className="mt-2 text-primary underline-offset-4 hover:underline"
-                    onClick={() => setActiveTab("settings")}
-                  >
-                    去配置模型
-                  </button>
-                ) : null}
-              </div>
-            </div>
           </div>
         </aside>
 
-        <section className="flex min-w-0 flex-col gap-5">
-          <header className="rounded-lg border bg-card p-5 shadow-sm">
-            <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+        <section className="flex-1 space-y-6">
+          <header className="rounded-2xl border bg-card p-5 shadow-sm">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
               <div>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <ActiveIcon className="h-4 w-4" aria-hidden />
+                  <ActiveIcon className="h-4 w-4" />
                   {activeNav.label}
                 </div>
-                <h2 className="mt-2 text-2xl font-semibold tracking-normal">{activeNav.description}</h2>
-                <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-                  建议流程：先配置模型，再添加产品资料，随后生成内容，最后在日历和资产库中复用。
+                <h1 className="mt-2 text-2xl font-semibold tracking-tight">把创作背景说清楚，再让 AI 干活</h1>
+                <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+                  这版已经加入结构化输入和一键二改。先把受众、场景、痛点和语气讲清楚，再生成更像真人会发的内容。
                 </p>
               </div>
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                <select
-                  className="h-10 min-w-56 rounded-md border bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  value={selectedProductId}
-                  onChange={(event) => setSelectedProductId(event.target.value)}
-                >
-                  <option value="">未选择产品</option>
-                  {products.map((product) => (
-                    <option key={product.id} value={product.id}>
-                      {product.name}
-                    </option>
-                  ))}
-                </select>
-                <Button variant="outline" onClick={loadAll} disabled={isBootstrapping}>
-                  {isBootstrapping ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <BarChart3 className="h-4 w-4" />
-                  )}
-                  刷新
-                </Button>
-                <Button onClick={() => setActiveTab("generate")}>
-                  <Sparkles className="h-4 w-4" />
-                  生成内容
-                </Button>
+
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <Stat label="内容资产" value={assets.length} />
+                <Stat label="日历条目" value={calendarItems.length} />
+                <Stat label="笔记" value={assets.filter((asset) => asset.type === "note").length} />
+                <Stat label="改写版本" value={assets.filter((asset) => Boolean(asset.parentId)).length} />
               </div>
             </div>
           </header>
 
-      {error ? (
-        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          {error}
-        </div>
-      ) : null}
-      {message ? (
-        <div className="rounded-md border border-primary/30 bg-accent px-4 py-3 text-sm text-primary">
-          {message}
-        </div>
-      ) : null}
+          {message ? <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm">{message}</div> : null}
+          {error ? <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</div> : null}
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Stat label="产品资料" value={products.length} />
-        <Stat label="内容资产" value={assets.length} />
-        <Stat label="日历条目" value={calendarItems.length} />
-        <Stat label="分析记录" value={competitors.length + reviews.length} />
-      </section>
+          {isBootstrapping ? (
+            <Card>
+              <CardContent className="flex min-h-48 items-center justify-center gap-3">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span className="text-sm text-muted-foreground">正在加载工作台…</span>
+              </CardContent>
+            </Card>
+          ) : null}
 
-      {activeTab === "products" ? (
-        <section className="grid gap-5 lg:grid-cols-[0.95fr_1.05fr]">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <PackagePlus className="h-4 w-4" />
-                新增产品资料
-              </CardTitle>
-              <CardDescription>后续所有生成都会优先读取这里的产品信息。</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <ProductBattleCardForm value={productForm} onChange={updateProductField} />
-              <Button onClick={createProduct}>
-                <PackagePlus className="h-4 w-4" />
-                保存产品
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>产品资料库</CardTitle>
-              <CardDescription>选择一个产品后，AI 生成会自动带入产品信息。</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {products.length === 0 ? (
-                <EmptyState
-                  title="还没有产品资料"
-                  description="先录入一个宠物玩具，后续生成笔记、脚本和日历时会自动带入卖点。"
-                />
-              ) : (
-                products.map((product) => (
-                  <div
-                    key={product.id}
-                    className={cn(
-                      "rounded-lg border bg-card p-4",
-                      selectedProductId === product.id && "border-primary bg-accent/50"
-                    )}
-                  >
-                    {editingProductId === product.id ? (
-                      <div className="space-y-4">
-                        <ProductBattleCardForm
-                          value={editingProductForm}
-                          onChange={updateEditingProductField}
-                        />
-                        <div className="flex flex-wrap gap-2">
-                          <Button onClick={saveProductEdit}>保存修改</Button>
-                          <Button variant="outline" onClick={() => setEditingProductId(null)}>
-                            取消
-                          </Button>
-                        </div>
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        className="w-full text-left"
-                        onClick={() => setSelectedProductId(product.id)}
-                      >
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="font-semibold">{product.name}</h3>
-                          <Badge>{product.targetPet}</Badge>
-                          <Badge>{product.category}</Badge>
-                          {selectedProductId === product.id ? <Badge>当前产品</Badge> : null}
-                        </div>
-                        <p className="mt-2 text-sm text-muted-foreground">{product.sellingPoints}</p>
-                        <div className="mt-2 text-xs text-muted-foreground">
-                          {product.salePrice || product.price
-                            ? `售价：${product.salePrice ?? product.price}  `
-                            : ""}
-                          {product.costPrice ? `成本：${product.costPrice}  ` : ""}
-                          {product.stock ? `库存：${product.stock}  ` : ""}
-                          {product.material ? `材质：${product.material}  ` : ""}
-                          {product.size ? `尺寸：${product.size}` : ""}
-                        </div>
-                        {product.mainSellingPoint || product.painPoints ? (
-                          <div className="mt-3 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
-                            {product.mainSellingPoint ? <div>主推：{product.mainSellingPoint}</div> : null}
-                            {product.painPoints ? <div>痛点：{product.painPoints}</div> : null}
-                          </div>
-                        ) : null}
-                      </button>
-                    )}
-                    {editingProductId !== product.id ? (
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <Button size="sm" variant="outline" onClick={() => startEditingProduct(product)}>
-                          编辑作战卡
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            setSelectedProductId(product.id);
-                            setActiveTab("generate");
-                          }}
+          {!isBootstrapping && activeTab === "generate" ? (
+            <section className="grid gap-5 lg:grid-cols-[1.02fr_0.98fr]">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Sparkles className="h-4 w-4" />
+                    结构化创作输入
+                  </CardTitle>
+                  <CardDescription>先讲清楚给谁看、卖什么感觉、想达成什么结果。</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-5">
+                  <div className="grid gap-3">
+                    {workflowOptions.map((option) => {
+                      const Icon = option.icon;
+                      return (
+                        <button
+                          key={option.id}
+                          type="button"
+                          onClick={() => setWorkflowType(option.id)}
+                          className={cn(
+                            "rounded-xl border bg-card p-4 text-left transition-colors hover:bg-accent",
+                            workflowType === option.id && "border-primary bg-accent"
+                          )}
                         >
-                          用它生成
-                        </Button>
-                        <Button size="sm" variant="ghost" className="text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={() => deleteItem("products", product.id)}>
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    ) : null}
+                          <div className="flex items-center gap-3">
+                            <div className="rounded-lg bg-primary/10 p-2 text-primary">
+                              <Icon className="h-4 w-4" />
+                            </div>
+                            <div>
+                              <div className="font-medium">{option.label}</div>
+                              <div className="text-sm text-muted-foreground">{option.description}</div>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
                   </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
-        </section>
-      ) : null}
 
-      {activeTab === "generate" ? (
-        <section className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
-          <Card>
-            <CardHeader>
-              <CardTitle>商业工作流生成</CardTitle>
-              <CardDescription>选择产品和工作流，生成结果会自动沉淀到资产库或日历。</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <label className="space-y-1 text-sm">
-                <span className="font-medium">产品</span>
-                <select
-                  className="h-10 w-full rounded-md border bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  value={selectedProductId}
-                  onChange={(event) => setSelectedProductId(event.target.value)}
-                >
-                  <option value="">不绑定产品</option>
-                  {products.map((product) => (
-                    <option key={product.id} value={product.id}>
-                      {product.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {!selectedProductId ? (
-                <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-                  没有选择产品也能生成；选择产品后，输出会更贴合商品卖点。
-                </div>
-              ) : null}
-              <label className="space-y-1 text-sm">
-                <span className="font-medium">内容目标</span>
-                <select
-                  className="h-10 w-full rounded-md border bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  value={contentGoal}
-                  onChange={(event) => setContentGoal(event.target.value)}
-                >
-                  {contentGoals.map((goal) => (
-                    <option key={goal} value={goal}>
-                      {goal}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {workflowOptions.map((option) => (
-                  <button
-                    key={option.id}
-                    type="button"
-                    className={cn(
-                      "rounded-lg border bg-card p-3 text-left transition-colors hover:bg-accent",
-                      workflowType === option.id && "border-primary bg-accent"
-                    )}
-                    onClick={() => selectWorkflow(option.id)}
-                  >
-                    <div className="font-medium">{option.label}</div>
-                    <p className="mt-1 text-xs text-muted-foreground">{option.description}</p>
-                  </button>
-                ))}
-              </div>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {TASK_TEMPLATES.slice(0, 4).map((template) => (
-                  <Button
-                    key={template.title}
-                    variant="outline"
-                    className="h-auto justify-start whitespace-normal py-3 text-left"
-                    onClick={() => setWorkflowInput(template.prompt)}
-                  >
-                    {template.title}
-                  </Button>
-                ))}
-              </div>
-              <Textarea value={workflowInput} onChange={(event) => setWorkflowInput(event.target.value)} />
-              <Button disabled={isLoading || !workflowInput.trim()} onClick={runCommercialWorkflow}>
-                {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                开始生成
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>最近生成结果</CardTitle>
-              <CardDescription>完整内容已保存到对应模块。</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {!lastOutput ? (
-                <div className="rounded-lg border bg-muted/40 p-4 text-sm text-muted-foreground">
-                  {selectedProduct
-                    ? `当前产品：${selectedProduct.name}。选择工作流后点击开始生成。`
-                    : "还没有选择产品，也可以直接输入任务生成。"}
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <p className="text-sm">{lastOutput.summary}</p>
-                  {lastOutput.analysisMarkdown ? (
-                    <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-lg border bg-muted/50 p-4 text-sm">
-                      {lastOutput.analysisMarkdown}
-                    </pre>
-                  ) : null}
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <Stat label="笔记" value={lastOutput.notes.length} />
-                    <Stat label="日历" value={lastOutput.calendar.length} />
-                    <Stat label="脚本" value={lastOutput.scripts.length} />
-                    <Stat label="话术" value={lastOutput.supportReplies.length} />
-                  </div>
-                  {lastOutput.notes.length > 0 ? (
-                    <div className="pt-2">
+                  <div className="flex flex-wrap gap-2">
+                    {WORKFLOW_TEMPLATES.map((template) => (
                       <Button
-                        variant="default"
-                        onClick={() =>
-                          setPreviewNote({
-                            title: lastOutput.notes[0].title,
-                            content: lastOutput.notes[0].body
-                          })
-                        }
+                        key={template.title}
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => applyTemplate(template.title)}
                       >
-                        <Smartphone className="h-4 w-4 mr-2" />
-                        真机预览首篇笔记
+                        {template.title}
                       </Button>
-                    </div>
-                  ) : null}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </section>
-      ) : null}
+                    ))}
+                  </div>
 
-      {activeTab === "calendar" ? (
-        <Card>
-          <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <CardTitle className="flex items-center gap-2">
-                <CalendarDays className="h-4 w-4" />
-                内容发布日历
-              </CardTitle>
-              <CardDescription>30 天内容排期，可以导出 CSV 到表格继续编辑。</CardDescription>
-            </div>
-            <Button
-              variant="outline"
-              disabled={calendarItems.length === 0}
-              onClick={() => downloadFile("content-calendar.csv", calendarToCsv(calendarItems), "text/csv")}
-            >
-              <Download className="h-4 w-4" />
-              导出 CSV
-            </Button>
-          </CardHeader>
-          <CardContent className="overflow-auto">
-            <table className="w-full min-w-[1280px] border-collapse text-sm">
-              <thead>
-                <tr className="border-b text-left text-muted-foreground">
-                  <th className="py-2 pr-3">天数</th>
-                  <th className="py-2 pr-3">产品</th>
-                  <th className="py-2 pr-3">目标</th>
-                  <th className="py-2 pr-3">选题</th>
-                  <th className="py-2 pr-3">形式</th>
-                  <th className="py-2 pr-3">状态</th>
-                  <th className="py-2 pr-3">发布时间</th>
-                  <th className="py-2 pr-3">链接/数据</th>
-                </tr>
-              </thead>
-              <tbody>
-                {calendarItems.map((item) => (
-                  <tr key={item.id} className="border-b align-top">
-                    <td className="py-3 pr-3">Day {item.day}</td>
-                    <td className="py-3 pr-3">{item.productName ?? "-"}</td>
-                    <td className="py-3 pr-3">{item.goal ?? "-"}</td>
-                    <td className="py-3 pr-3">
-                      <div className="font-medium">{item.topic}</div>
-                      <div className="mt-1 text-xs text-muted-foreground">{item.angle}</div>
-                      <div className="mt-1 text-xs text-muted-foreground">{item.assetTitle ?? "-"}</div>
-                    </td>
-                    <td className="py-3 pr-3">{item.format}</td>
-                    <td className="py-3 pr-3">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <label className="space-y-1 text-sm">
+                      <span className="font-medium">内容目标</span>
                       <select
-                        className="h-9 rounded-md border bg-card px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        value={item.status}
-                        onChange={(event) => updateCalendarItem(item, { status: event.target.value })}
+                        className="h-10 w-full rounded-md border bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        value={contentGoal}
+                        onChange={(event) => setContentGoal(event.target.value)}
                       >
-                        {calendarStatuses.map((status) => (
-                          <option key={status} value={status}>
-                            {statusLabels[status]}
+                        {contentGoals.map((goal) => (
+                          <option key={goal} value={goal}>
+                            {goal}
                           </option>
                         ))}
                       </select>
-                    </td>
-                    <td className="py-3 pr-3">
-                      <input
-                        className="h-9 w-36 rounded-md border bg-card px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        defaultValue={item.publishAt ?? ""}
-                        placeholder="如 05-12 20:00"
-                        onBlur={(event) => updateCalendarItem(item, { publishAt: event.target.value })}
-                      />
-                    </td>
-                    <td className="space-y-2 py-3 pr-3">
-                      <input
-                        className="h-9 w-56 rounded-md border bg-card px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        defaultValue={item.noteUrl ?? ""}
-                        placeholder="笔记链接"
-                        onBlur={(event) => updateCalendarItem(item, { noteUrl: event.target.value })}
-                      />
-                      <input
-                        className="h-9 w-56 rounded-md border bg-card px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        defaultValue={item.metrics ?? ""}
-                        placeholder="曝光/赞/藏/评/进店/成交"
-                        onBlur={(event) => updateCalendarItem(item, { metrics: event.target.value })}
-                      />
-                      <input
-                        className="h-9 w-56 rounded-md border bg-card px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        defaultValue={item.reviewNote ?? ""}
-                        placeholder="复盘结论"
-                        onBlur={(event) => updateCalendarItem(item, { reviewNote: event.target.value })}
-                      />
-                      <Button size="icon" variant="ghost" className="h-9 w-9 text-destructive hover:bg-destructive/10" onClick={() => deleteItem("calendar", item.id)}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {calendarItems.length === 0 ? (
-              <EmptyState
-                title="还没有内容日历"
-                description="生成 30 天内容日历后，这里会显示每日选题、形式和主推角度。"
-                action={
-                  <Button onClick={() => setActiveTab("generate")}>
-                    <Sparkles className="h-4 w-4" />
-                    去生成日历
-                  </Button>
-                }
-              />
-            ) : null}
-          </CardContent>
-        </Card>
-      ) : null}
+                    </label>
 
-      {activeTab === "assets" ? (
-        <Card>
-          <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <CardTitle>内容资产库</CardTitle>
-              <CardDescription>保存所有笔记、短视频脚本和客服话术，支持 Markdown/CSV 导出。</CardDescription>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                variant="outline"
-                disabled={assets.length === 0}
-                onClick={() => downloadFile("content-assets.md", assetsToMarkdown(assets), "text/markdown")}
-              >
-                <Download className="h-4 w-4" />
-                导出 MD
-              </Button>
-              <Button
-                variant="outline"
-                disabled={assets.length === 0}
-                onClick={() => downloadFile("content-assets.csv", assetsToCsv(assets), "text/csv")}
-              >
-                <Download className="h-4 w-4" />
-                导出 CSV
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent className="grid gap-4 lg:grid-cols-2">
-            {assets.map((asset) => (
-              <div key={asset.id} className="rounded-lg border bg-card p-4">
-                <div className="mb-2 flex flex-wrap items-center gap-2">
-                  <Badge>{asset.type}</Badge>
-                  {asset.productName ? <Badge>{asset.productName}</Badge> : null}
-                  <span className="text-xs text-muted-foreground">{formatDate(asset.createdAt)}</span>
-                </div>
-                <h3 className="font-semibold">{asset.title}</h3>
-                <pre className="mt-3 max-h-56 overflow-auto whitespace-pre-wrap rounded-md bg-muted/60 p-3 text-sm text-muted-foreground">
-                  {asset.body}
-                </pre>
-                <div className="mt-3 flex gap-2">
-                  <Button size="sm" variant="outline" onClick={() => copyText(asset.body)}>
-                    <Clipboard className="h-4 w-4" />
-                    复制
-                  </Button>
-                  {asset.type === "note" ? (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setPreviewNote({ title: asset.title, content: asset.body })}
-                    >
-                      <Smartphone className="h-4 w-4" />
-                      真机预览
-                    </Button>
-                  ) : null}
-                  <Button size="sm" variant="ghost" className="text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={() => deleteItem("assets", asset.id)}>
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            ))}
-            {assets.length === 0 ? (
-              <EmptyState
-                title="还没有内容资产"
-                description="生成笔记、短视频脚本或客服话术后，这里会自动保存，可复制和导出。"
-                action={
-                  <Button onClick={() => setActiveTab("generate")}>
-                    <Sparkles className="h-4 w-4" />
-                    去生成内容
-                  </Button>
-                }
-              />
-            ) : null}
-          </CardContent>
-        </Card>
-      ) : null}
-
-      {activeTab === "analysis" ? (
-        <section className="grid gap-5 lg:grid-cols-2">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Search className="h-4 w-4" />
-                竞品笔记拆解
-              </CardTitle>
-              <CardDescription>在 AI 生成里选择“竞品拆解”，结果会保存到这里。</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {competitors.map((item) => (
-                <div key={item.id} className="relative rounded-lg border p-4 group">
-                  <Button size="icon" variant="ghost" className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:bg-destructive/10" onClick={() => deleteItem("competitors", item.id)}>
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                  <div className="mb-2 text-xs text-muted-foreground">{formatDate(item.createdAt)}</div>
-                  <h3 className="font-semibold">{item.title}</h3>
-                  <pre className="mt-3 whitespace-pre-wrap rounded-md bg-muted/60 p-3 text-sm text-muted-foreground">
-                    {item.result}
-                  </pre>
-                </div>
-              ))}
-              {competitors.length === 0 ? (
-                <EmptyState
-                  title="还没有竞品拆解"
-                  description="在 AI 生成里选择竞品拆解，粘贴对标笔记后会保存到这里。"
-                  action={
-                    <Button onClick={() => setActiveTab("generate")}>
-                      <Search className="h-4 w-4" />
-                      去拆解竞品
-                    </Button>
-                  }
-                />
-              ) : null}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <BarChart3 className="h-4 w-4" />
-                数据复盘记录
-              </CardTitle>
-              <CardDescription>在 AI 生成里选择“数据复盘”，结果会保存到这里。</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {reviews.map((item) => (
-                <div key={item.id} className="relative rounded-lg border p-4 group">
-                  <Button size="icon" variant="ghost" className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:bg-destructive/10" onClick={() => deleteItem("reviews", item.id)}>
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                  <div className="mb-2 text-xs text-muted-foreground">{formatDate(item.createdAt)}</div>
-                  <h3 className="font-semibold">{item.title}</h3>
-                  <pre className="mt-3 whitespace-pre-wrap rounded-md bg-muted/60 p-3 text-sm text-muted-foreground">
-                    {item.result}
-                  </pre>
-                </div>
-              ))}
-              {reviews.length === 0 ? (
-                <EmptyState
-                  title="还没有数据复盘"
-                  description="输入曝光、收藏、评论、进店和成交数据，系统会给出下一轮优化方向。"
-                  action={
-                    <Button onClick={() => setActiveTab("generate")}>
-                      <BarChart3 className="h-4 w-4" />
-                      去复盘数据
-                    </Button>
-                  }
-                />
-              ) : null}
-            </CardContent>
-          </Card>
-        </section>
-      ) : null}
-
-      {activeTab === "cover" ? (
-        <section className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <ImageIcon className="h-4 w-4" />
-                AI 封面生成
-              </CardTitle>
-              <CardDescription>调用 DALL-E 3 生成 3:4 比例的竖屏小红书首图。</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <label className="space-y-1 text-sm">
-                <span className="font-medium">画面描述</span>
-                <Textarea
-                  className="min-h-32"
-                  value={coverPrompt}
-                  onChange={(event) => setCoverPrompt(event.target.value)}
-                  placeholder="例如：一个可爱的小猫正在玩纸箱，明亮温馨的家居环境，高质感摄影，适合小红书封面。"
-                />
-              </label>
-              <Button disabled={isGeneratingCover || !coverPrompt.trim()} onClick={generateCover}>
-                {isGeneratingCover ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                生成图片
-              </Button>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle>生成结果</CardTitle>
-              <CardDescription>图片不会保存在服务器，请及时下载或右键复制。</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {coverImageUrl ? (
-                <div className="space-y-4">
-                  <div className="overflow-hidden rounded-lg border bg-muted flex items-center justify-center p-2">
-                    <img src={coverImageUrl} alt="生成的封面" className="max-h-[600px] object-contain rounded" />
+                    <label className="space-y-1 text-sm">
+                      <span className="font-medium">内容形式</span>
+                      <select
+                        className="h-10 w-full rounded-md border bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        value={brief.contentForm}
+                        onChange={(event) => updateBrief("contentForm", event.target.value)}
+                      >
+                        {contentForms.map((form) => (
+                          <option key={form} value={form}>
+                            {form}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
                   </div>
-                  <Button onClick={() => window.open(coverImageUrl, "_blank")}>
-                    <Download className="h-4 w-4" />
-                    查看大图并保存
-                  </Button>
-                </div>
-              ) : (
-                <EmptyState
-                  title="等待生成"
-                  description="在左侧输入描述并点击生成，这里将展示生成的 3:4 比例封面图。"
-                />
-              )}
-            </CardContent>
-          </Card>
-        </section>
-      ) : null}
 
-      {activeTab === "settings" ? (
-        <section className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Settings className="h-4 w-4" />
-                点击切换模型
-              </CardTitle>
-              <CardDescription>选择模型供应商，填写 API Key 和模型名，保存后立即生效。</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-3 sm:grid-cols-2">
-                {(modelConfig?.providers ?? []).map((provider) => (
-                  <button
-                    key={provider.id}
-                    type="button"
-                    onClick={() => selectProvider(provider.id)}
-                    className={cn(
-                      "rounded-lg border bg-card p-4 text-left transition-colors hover:bg-accent",
-                      modelForm.providerId === provider.id && "border-primary bg-accent"
-                    )}
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="font-semibold">{provider.name}</div>
-                      {modelConfig?.activeProviderId === provider.id ? <Badge>当前</Badge> : null}
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <label className="space-y-1 text-sm">
+                      <span className="font-medium">主题</span>
+                      <input
+                        className="h-10 w-full rounded-md border bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        value={brief.topic}
+                        onChange={(event) => updateBrief("topic", event.target.value)}
+                        placeholder="比如：宠物互动玩具种草"
+                      />
+                    </label>
+
+                    <label className="space-y-1 text-sm">
+                      <span className="font-medium">目标人群</span>
+                      <input
+                        className="h-10 w-full rounded-md border bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        value={brief.targetAudience}
+                        onChange={(event) => updateBrief("targetAudience", event.target.value)}
+                        placeholder="比如：新手养猫家庭"
+                      />
+                    </label>
+                  </div>
+
+                  <label className="space-y-1 text-sm">
+                    <span className="font-medium">核心卖点</span>
+                    <Textarea
+                      value={brief.coreSellingPoint}
+                      onChange={(event) => updateBrief("coreSellingPoint", event.target.value)}
+                      placeholder="比如：耐咬、互动性强、真实反应好拍、颜值高"
+                    />
+                  </label>
+
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <label className="space-y-1 text-sm">
+                      <span className="font-medium">使用场景</span>
+                      <Textarea
+                        value={brief.useScene}
+                        onChange={(event) => updateBrief("useScene", event.target.value)}
+                        placeholder="比如：下班回家陪玩、周末在家消耗精力"
+                      />
+                    </label>
+
+                    <label className="space-y-1 text-sm">
+                      <span className="font-medium">情绪 / 痛点</span>
+                      <Textarea
+                        value={brief.emotionOrPainPoint}
+                        onChange={(event) => updateBrief("emotionOrPainPoint", event.target.value)}
+                        placeholder="比如：猫咪无聊拆家，不知道买什么互动玩具"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <label className="space-y-1 text-sm">
+                      <span className="font-medium">语气风格</span>
+                      <Textarea
+                        value={brief.toneStyle}
+                        onChange={(event) => updateBrief("toneStyle", event.target.value)}
+                        placeholder="比如：像有经验的朋友在真实分享"
+                      />
+                    </label>
+
+                    <label className="space-y-1 text-sm">
+                      <span className="font-medium">禁用表达</span>
+                      <Textarea
+                        value={brief.forbiddenWords}
+                        onChange={(event) => updateBrief("forbiddenWords", event.target.value)}
+                        placeholder="比如：绝对安全、闭眼买、保证爆单"
+                      />
+                    </label>
+                  </div>
+
+                  <label className="space-y-1 text-sm">
+                    <span className="font-medium">补充说明</span>
+                    <Textarea
+                      className="min-h-28"
+                      value={brief.additionalNotes}
+                      onChange={(event) => updateBrief("additionalNotes", event.target.value)}
+                      placeholder="把这次特别在意的要求补进来，比如更口语、更多清单感、适合收藏等"
+                    />
+                  </label>
+
+                  <Button disabled={isLoading || !brief.topic.trim()} onClick={runWorkflow}>
+                    {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                    开始生成
+                  </Button>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <PanelsTopLeft className="h-4 w-4" />
+                    标题工坊
+                  </CardTitle>
+                  <CardDescription>围绕当前 brief 快速出一组不同风格的标题，直接拿去测点击。</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-5">
+                  <div className="rounded-xl border bg-muted/30 p-4">
+                    <div className="mb-2 text-sm font-medium">本次创作 brief</div>
+                    <pre className="whitespace-pre-wrap text-sm text-muted-foreground">
+                      {buildPrompt(contentGoal, brief, accountProfile)}
+                    </pre>
+                  </div>
+
+                  <div>
+                    <div className="mb-2 text-sm font-medium">标题风格</div>
+                    <div className="flex flex-wrap gap-2">
+                      {TITLE_STYLE_OPTIONS.map((option) => (
+                        <button
+                          key={option.id}
+                          type="button"
+                          onClick={() => toggleTitleStyle(option.id)}
+                          className={cn(
+                            "rounded-full border px-3 py-1.5 text-xs transition-colors",
+                            preferredTitleStyles.includes(option.id)
+                              ? "border-primary bg-primary/10 text-primary"
+                              : "bg-card text-muted-foreground hover:bg-accent"
+                          )}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
                     </div>
-                    <p className="mt-2 text-xs text-muted-foreground">默认模型：{provider.defaultModel}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {provider.apiStyle === "responses" ? "Responses API" : "Chat Completions 兼容"}
-                    </p>
-                  </button>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>模型参数</CardTitle>
-              <CardDescription>
-                API Key 会保存到本地 .model-config.json，不会提交到 git。
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {modelConfig ? (
-                <div className="rounded-lg border bg-card p-4">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge>{modelConfig.configured ? "已配置" : "未配置"}</Badge>
-                    <Badge>{modelConfig.activeProviderName}</Badge>
-                    <Badge>{modelConfig.activeModel}</Badge>
                   </div>
-                  <p className="mt-3 text-sm text-muted-foreground">
-                    当前接口：{modelConfig.activeBaseURL}
-                  </p>
+
+                  <Button
+                    variant="secondary"
+                    disabled={isGeneratingTitles || !brief.topic.trim()}
+                    onClick={runTitleWorkshop}
+                  >
+                    {isGeneratingTitles ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <MessageSquareQuote className="h-4 w-4" />
+                    )}
+                    生成标题
+                  </Button>
+
+                  {titleWorkshop ? (
+                    <div className="space-y-4 rounded-xl border p-4">
+                      <div>
+                        <div className="text-sm font-medium">标题建议</div>
+                        <p className="mt-1 text-sm text-muted-foreground">{titleWorkshop.summary}</p>
+                      </div>
+
+                      <div className="space-y-3">
+                        {titleWorkshop.titles.map((title, index) => (
+                          <div key={`${title.text}-${index}`} className="rounded-lg border bg-muted/30 p-3">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Badge>{TITLE_STYLE_OPTIONS.find((item) => item.id === title.style)?.label ?? title.style}</Badge>
+                              <Badge>{title.scoreHint}</Badge>
+                            </div>
+                            <div className="mt-2 text-sm font-medium">{title.text}</div>
+                            <div className="mt-1 text-xs text-muted-foreground">{title.intent}</div>
+                            <div className="mt-3">
+                              <Button size="sm" variant="outline" onClick={() => copyText(title.text)}>
+                                <Clipboard className="h-4 w-4" />
+                                复制标题
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div className="border-t pt-5">
+                    <div className="mb-3 flex items-center gap-2">
+                      <MessageSquareQuote className="h-4 w-4" />
+                      <h3 className="text-sm font-medium">最近一次结果</h3>
+                    </div>
+
+                    {lastOutput ? (
+                      <>
+                      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                        <Stat label="笔记" value={lastOutput.notes.length} />
+                        <Stat label="日历" value={lastOutput.calendar.length} />
+                        <Stat label="脚本" value={lastOutput.scripts.length} />
+                        <Stat label="动作" value={lastOutput.nextActions.length} />
+                      </div>
+
+                      <div>
+                        <h3 className="text-sm font-medium">内容摘要</h3>
+                        <p className="mt-2 text-sm text-muted-foreground">{lastOutput.summary}</p>
+                      </div>
+
+                      <div>
+                        <h3 className="text-sm font-medium">下一步建议</h3>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {lastOutput.nextActions.map((item) => (
+                            <Badge key={item}>{item}</Badge>
+                          ))}
+                        </div>
+                      </div>
+
+                      {lastOutput.notes[0] ? (
+                        <div>
+                          <h3 className="text-sm font-medium">示例笔记</h3>
+                          <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-lg bg-muted/60 p-4 text-sm text-muted-foreground">
+                            {lastOutput.notes[0].body}
+                          </pre>
+                        </div>
+                      ) : null}
+                      </>
+                    ) : (
+                      <EmptyState
+                        title="还没有生成结果"
+                        description="先把主题、受众、卖点和痛点填进去。结果会自动沉淀到资产库和内容日历。"
+                      />
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </section>
+          ) : null}
+
+          {!isBootstrapping && activeTab === "calendar" ? (
+            <Card>
+              <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <CalendarDays className="h-4 w-4" />
+                    内容日历
+                  </CardTitle>
+                  <CardDescription>保留选题、形式、角度和状态，方便管理创作节奏。</CardDescription>
                 </div>
-              ) : null}
+                <Button
+                  variant="outline"
+                  disabled={calendarItems.length === 0}
+                  onClick={() => downloadFile("content-calendar.csv", calendarToCsv(calendarItems), "text/csv")}
+                >
+                  <Download className="h-4 w-4" />
+                  导出 CSV
+                </Button>
+              </CardHeader>
+              <CardContent>
+                {calendarItems.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead>
+                        <tr className="border-b text-left text-muted-foreground">
+                          <th className="py-3 pr-3 font-medium">Day</th>
+                          <th className="py-3 pr-3 font-medium">内容</th>
+                          <th className="py-3 pr-3 font-medium">形式</th>
+                          <th className="py-3 pr-3 font-medium">目标</th>
+                          <th className="py-3 pr-3 font-medium">状态</th>
+                          <th className="py-3 pr-3 font-medium">操作</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {calendarItems.map((item) => (
+                          <tr key={item.id} className="border-b align-top">
+                            <td className="py-3 pr-3">Day {item.day}</td>
+                            <td className="py-3 pr-3">
+                              <div className="font-medium">{item.topic}</div>
+                              <div className="mt-1 text-xs text-muted-foreground">{item.angle}</div>
+                              <div className="mt-1 text-xs text-muted-foreground">{item.assetTitle ?? "-"}</div>
+                            </td>
+                            <td className="py-3 pr-3">{item.format}</td>
+                            <td className="py-3 pr-3">{item.goal ?? "-"}</td>
+                            <td className="py-3 pr-3">
+                              <select
+                                className="h-9 rounded-md border bg-card px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                value={item.status}
+                                onChange={(event) => updateCalendarItem(item, event.target.value)}
+                              >
+                                {calendarStatuses.map((status) => (
+                                  <option key={status} value={status}>
+                                    {statusLabels[status]}
+                                  </option>
+                                ))}
+                              </select>
+                            </td>
+                            <td className="py-3 pr-3">
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-9 w-9 text-destructive hover:bg-destructive/10"
+                                onClick={() => deleteItem("calendar", item.id)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <EmptyState
+                    title="还没有内容日历"
+                    description="先在 AI 生成里做一版 30 天内容日历，这里就会自动承接下来。"
+                    action={
+                      <Button onClick={() => setActiveTab("generate")}>
+                        <Sparkles className="h-4 w-4" />
+                        去生成日历
+                      </Button>
+                    }
+                  />
+                )}
+              </CardContent>
+            </Card>
+          ) : null}
 
-              <label className="space-y-1 text-sm">
-                <span className="font-medium">API Key</span>
-                <input
-                  type="password"
-                  className="h-10 w-full rounded-md border bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  value={modelForm.apiKey}
-                  onChange={(event) =>
-                    setModelForm((current) => ({ ...current, apiKey: event.target.value }))
-                  }
-                  placeholder="粘贴当前模型供应商的 API Key"
-                />
-              </label>
+          {!isBootstrapping && activeTab === "assets" ? (
+            <Card>
+              <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <CardTitle>内容资产库</CardTitle>
+                  <CardDescription>现在可以直接在资产库里做二改，并把新版本继续沉淀下来。</CardDescription>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    disabled={assets.length === 0}
+                    onClick={() => downloadFile("content-assets.md", assetsToMarkdown(assets), "text/markdown")}
+                  >
+                    <Download className="h-4 w-4" />
+                    导出 MD
+                  </Button>
+                  <Button
+                    variant="outline"
+                    disabled={assets.length === 0}
+                    onClick={() => downloadFile("content-assets.csv", assetsToCsv(assets), "text/csv")}
+                  >
+                    <Download className="h-4 w-4" />
+                    导出 CSV
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="grid gap-4 lg:grid-cols-2">
+                {assets.length > 0 ? (
+                  assets.map((asset) => (
+                    <div key={asset.id} className="rounded-lg border bg-card p-4">
+                      <div className="mb-2 flex flex-wrap items-center gap-2">
+                        <Badge>{asset.type}</Badge>
+                        <Badge>{asset.source}</Badge>
+                        {asset.variantType ? <Badge>{asset.variantType}</Badge> : null}
+                        {asset.parentId ? <Badge>改写版</Badge> : null}
+                        <span className="text-xs text-muted-foreground">{formatDate(asset.createdAt)}</span>
+                      </div>
 
-              <label className="space-y-1 text-sm">
-                <span className="font-medium">模型名</span>
-                <input
-                  className="h-10 w-full rounded-md border bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  value={modelForm.model}
-                  onChange={(event) =>
-                    setModelForm((current) => ({ ...current, model: event.target.value }))
-                  }
-                />
-              </label>
+                      <h3 className="font-semibold">{asset.title}</h3>
+                      <pre className="mt-3 max-h-56 overflow-auto whitespace-pre-wrap rounded-md bg-muted/60 p-3 text-sm text-muted-foreground">
+                        {asset.body}
+                      </pre>
 
-              <label className="space-y-1 text-sm">
-                <span className="font-medium">Base URL</span>
-                <input
-                  className="h-10 w-full rounded-md border bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:bg-muted disabled:text-muted-foreground"
-                  value={modelForm.baseURL}
-                  disabled={modelForm.providerId !== "custom"}
-                  onChange={(event) =>
-                    setModelForm((current) => ({ ...current, baseURL: event.target.value }))
-                  }
-                  placeholder="仅自定义兼容接口需要填写"
-                />
-              </label>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Button size="sm" variant="outline" onClick={() => copyText(asset.body)}>
+                          <Clipboard className="h-4 w-4" />
+                          复制
+                        </Button>
+                        {asset.type === "note" ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setPreviewNote({ title: asset.title, content: asset.body })}
+                          >
+                            <Smartphone className="h-4 w-4" />
+                            预览
+                          </Button>
+                        ) : null}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={checkingAssetId === asset.id}
+                          onClick={() => runPrePublishCheck(asset)}
+                        >
+                          {checkingAssetId === asset.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Gauge className="h-4 w-4" />
+                          )}
+                          发布前检查
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                          onClick={() => deleteItem("assets", asset.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
 
-              <Button onClick={saveModelSettings}>
-                <Settings className="h-4 w-4" />
-                保存并切换
-              </Button>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {REWRITE_OPTIONS.map((option) => (
+                          <Button
+                            key={`${asset.id}-${option.mode}`}
+                            size="sm"
+                            variant="secondary"
+                            disabled={rewritingAssetId === asset.id}
+                            onClick={() => rewriteAsset(asset, option.mode)}
+                          >
+                            {rewritingAssetId === asset.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <WandSparkles className="h-4 w-4" />
+                            )}
+                            {option.label}
+                          </Button>
+                        ))}
+                      </div>
 
-              <p className="text-xs text-muted-foreground">
-                保存后新生成任务会使用新模型；已生成内容不会改变。
-              </p>
-            </CardContent>
-          </Card>
-        </section>
-      ) : null}
+                      {prePublishChecks[asset.id] ? (
+                        <div className="mt-4 rounded-lg border bg-muted/30 p-4">
+                          <div className="mb-2 flex items-center gap-2">
+                            <Gauge className="h-4 w-4" />
+                            <div className="text-sm font-medium">发布前检查</div>
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            {prePublishChecks[asset.id]?.overallSuggestion}
+                          </p>
+                          <div className="mt-3 space-y-2">
+                            {prePublishChecks[asset.id]?.checks.map((check) => (
+                              <div key={`${asset.id}-${check.name}`} className="rounded-md border bg-card p-3">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <Badge>{check.name}</Badge>
+                                  <Badge
+                                    className={cn(
+                                      check.status === "good" && "border-emerald-500/40 text-emerald-700",
+                                      check.status === "watch" && "border-amber-500/40 text-amber-700",
+                                      check.status === "fix" && "border-red-500/40 text-red-700"
+                                    )}
+                                  >
+                                    {check.status === "good"
+                                      ? "良好"
+                                      : check.status === "watch"
+                                        ? "可优化"
+                                        : "建议修改"}
+                                  </Badge>
+                                </div>
+                                <p className="mt-2 text-sm text-muted-foreground">{check.advice}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  ))
+                ) : (
+                  <EmptyState
+                    title="还没有内容资产"
+                    description="生成笔记或短视频脚本后，这里会自动保存下来，而且可以继续二次改写。"
+                    action={
+                      <Button onClick={() => setActiveTab("generate")}>
+                        <Sparkles className="h-4 w-4" />
+                        去生成内容
+                      </Button>
+                    }
+                  />
+                )}
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {!isBootstrapping && activeTab === "settings" ? (
+            <section className="grid gap-5">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <MessageSquareQuote className="h-4 w-4" />
+                    账号人设记忆
+                  </CardTitle>
+                  <CardDescription>把账号定位、常用语气和边界保存下来，后续生成、标题工坊和改写会自动带上这些设定。</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <label className="space-y-1 text-sm">
+                      <span className="font-medium">账号名称</span>
+                      <input
+                        className="h-10 w-full rounded-md border bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        value={accountProfile.accountName}
+                        onChange={(event) => updateAccountProfile("accountName", event.target.value)}
+                        placeholder="比如：猫咪玩具测评日记"
+                      />
+                    </label>
+                    <label className="space-y-1 text-sm">
+                      <span className="font-medium">账号定位</span>
+                      <input
+                        className="h-10 w-full rounded-md border bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        value={accountProfile.positioning}
+                        onChange={(event) => updateAccountProfile("positioning", event.target.value)}
+                        placeholder="比如：真实养宠用品测评和陪玩灵感"
+                      />
+                    </label>
+                  </div>
+
+                  <label className="space-y-1 text-sm">
+                    <span className="font-medium">账号核心人群</span>
+                    <Textarea
+                      value={accountProfile.targetAudience}
+                      onChange={(event) => updateAccountProfile("targetAudience", event.target.value)}
+                      placeholder="比如：新手养猫家庭、看重真实体验感的年轻养宠人群"
+                    />
+                  </label>
+
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <label className="space-y-1 text-sm">
+                      <span className="font-medium">固定语气</span>
+                      <Textarea
+                        value={accountProfile.toneStyle}
+                        onChange={(event) => updateAccountProfile("toneStyle", event.target.value)}
+                        placeholder="比如：像有经验的朋友在认真分享，真实、不端着"
+                      />
+                    </label>
+                    <label className="space-y-1 text-sm">
+                      <span className="font-medium">常用表达</span>
+                      <Textarea
+                        value={accountProfile.preferredPhrases}
+                        onChange={(event) => updateAccountProfile("preferredPhrases", event.target.value)}
+                        placeholder="比如：真心建议、这点很加分、我会更看重"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <label className="space-y-1 text-sm">
+                      <span className="font-medium">禁用表达</span>
+                      <Textarea
+                        value={accountProfile.forbiddenPhrases}
+                        onChange={(event) => updateAccountProfile("forbiddenPhrases", event.target.value)}
+                        placeholder="比如：闭眼买、绝对安全、保证爆单"
+                      />
+                    </label>
+                    <label className="space-y-1 text-sm">
+                      <span className="font-medium">品牌边界</span>
+                      <Textarea
+                        value={accountProfile.brandBoundaries}
+                        onChange={(event) => updateAccountProfile("brandBoundaries", event.target.value)}
+                        placeholder="比如：不夸大功效，不承诺治疗，不说绝对化结论"
+                      />
+                    </label>
+                  </div>
+
+                  <Button onClick={saveAccountProfileSettings}>
+                    <Settings className="h-4 w-4" />
+                    保存账号人设
+                  </Button>
+                </CardContent>
+              </Card>
+
+              <div className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Settings className="h-4 w-4" />
+                    切换模型
+                  </CardTitle>
+                  <CardDescription>选择供应商并保存，后续生成和改写会立即生效。</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {(modelConfig?.providers ?? []).map((provider) => (
+                      <button
+                        key={provider.id}
+                        type="button"
+                        onClick={() => selectProvider(provider.id)}
+                        className={cn(
+                          "rounded-lg border bg-card p-4 text-left transition-colors hover:bg-accent",
+                          modelForm.providerId === provider.id && "border-primary bg-accent"
+                        )}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="font-semibold">{provider.name}</div>
+                          {modelConfig?.activeProviderId === provider.id ? <Badge>当前</Badge> : null}
+                        </div>
+                        <p className="mt-2 text-xs text-muted-foreground">默认模型：{provider.defaultModel}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {provider.apiStyle === "responses" ? "Responses API" : "Chat Completions"}
+                        </p>
+                      </button>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>模型参数</CardTitle>
+                  <CardDescription>API Key 会保存到本地 `.model-config.json`，不会提交到 git。</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {modelConfig ? (
+                    <div className="rounded-lg border bg-card p-4">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge>{modelConfig.configured ? "已配置" : "未配置"}</Badge>
+                        <Badge>{modelConfig.activeProviderName}</Badge>
+                        <Badge>{modelConfig.activeModel}</Badge>
+                      </div>
+                      <p className="mt-3 text-sm text-muted-foreground">当前接口：{modelConfig.activeBaseURL}</p>
+                    </div>
+                  ) : null}
+
+                  <label className="space-y-1 text-sm">
+                    <span className="font-medium">API Key</span>
+                    <input
+                      type="password"
+                      className="h-10 w-full rounded-md border bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      value={modelForm.apiKey}
+                      onChange={(event) =>
+                        setModelForm((current) => ({ ...current, apiKey: event.target.value }))
+                      }
+                      placeholder="填写当前模型供应商的 API Key"
+                    />
+                  </label>
+
+                  <label className="space-y-1 text-sm">
+                    <span className="font-medium">模型名</span>
+                    <input
+                      className="h-10 w-full rounded-md border bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      value={modelForm.model}
+                      onChange={(event) =>
+                        setModelForm((current) => ({ ...current, model: event.target.value }))
+                      }
+                    />
+                  </label>
+
+                  <label className="space-y-1 text-sm">
+                    <span className="font-medium">Base URL</span>
+                    <input
+                      className="h-10 w-full rounded-md border bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:bg-muted disabled:text-muted-foreground"
+                      value={modelForm.baseURL}
+                      disabled={modelForm.providerId !== "custom"}
+                      onChange={(event) =>
+                        setModelForm((current) => ({ ...current, baseURL: event.target.value }))
+                      }
+                      placeholder="仅自定义兼容接口需要填写"
+                    />
+                  </label>
+
+                  <Button onClick={saveModelSettings}>
+                    <Settings className="h-4 w-4" />
+                    保存并切换
+                  </Button>
+                </CardContent>
+              </Card>
+            </div>
+            </section>
+          ) : null}
         </section>
       </div>
 

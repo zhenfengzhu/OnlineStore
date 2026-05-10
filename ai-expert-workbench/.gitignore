@@ -5,6 +5,7 @@ node_modules
 logs
 .launcher
 .model-config.json
+.account-profile.json
 .env
 .env*.local
 *.tsbuildinfo

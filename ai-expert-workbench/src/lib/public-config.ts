@@ -1,86 +1,74 @@
-export type PublicExpertRole = {
-  id: string;
-  name: string;
-  description: string;
-  selectable: boolean;
-};
+import type { RewriteMode, StructuredBrief, TitleStyle, WorkflowType } from "@/lib/types";
 
-export const ROLE_META: PublicExpertRole[] = [
+export const WORKFLOW_TEMPLATES: Array<{
+  title: string;
+  workflowType: WorkflowType;
+  brief: StructuredBrief;
+}> = [
   {
-    id: "product",
-    name: "选品专家",
-    description: "分析宠物玩具卖点、用户痛点、价格带和差异化。",
-    selectable: true
+    title: "宠物图文种草",
+    workflowType: "thirty_notes",
+    brief: {
+      topic: "宠物互动玩具种草",
+      targetAudience: "新手养猫家庭",
+      contentForm: "图文笔记",
+      coreSellingPoint: "耐咬、互动性强、拍出来有氛围",
+      useScene: "下班回家陪玩、周末在家消耗精力",
+      emotionOrPainPoint: "担心猫咪无聊拆家，想找真实好拍的互动玩具",
+      toneStyle: "像有经验的养宠朋友在真心推荐，口语化但不过分夸张",
+      forbiddenWords: "绝对安全、包治分离焦虑、永远咬不坏",
+      additionalNotes: "重点强化真实体验感和画面感"
+    }
   },
   {
-    id: "ops",
-    name: "小红书运营专家",
-    description: "设计账号定位、选题方向、发布节奏和互动策略。",
-    selectable: true
+    title: "30天内容规划",
+    workflowType: "content_calendar",
+    brief: {
+      topic: "宠物玩具内容规划",
+      targetAudience: "城市养宠家庭",
+      contentForm: "30天内容日历",
+      coreSellingPoint: "互动性、颜值、陪伴感、消耗精力",
+      useScene: "居家互动、单宠陪伴、多人围观拍摄",
+      emotionOrPainPoint: "创作选题容易重复，想持续稳定产出内容",
+      toneStyle: "更像成熟账号的月度排期，节奏清晰，选题不重复",
+      forbiddenWords: "保证爆单、一定涨粉",
+      additionalNotes: "覆盖图文、视频、测评、避坑、清单和场景内容"
+    }
   },
   {
-    id: "copywriter",
-    name: "爆款文案专家",
-    description: "生成标题、封面文案、正文结构和种草表达。",
-    selectable: true
-  },
-  {
-    id: "video",
-    name: "短视频脚本专家",
-    description: "拆解镜头、口播、场景和拍摄执行清单。",
-    selectable: true
-  },
-  {
-    id: "analytics",
-    name: "数据复盘专家",
-    description: "根据曝光、互动和成交数据给出优化动作。",
-    selectable: true
-  },
-  {
-    id: "support",
-    name: "客服话术专家",
-    description: "生成售前咨询、售后解释和常见问题回复。",
-    selectable: true
-  },
-  {
-    id: "coordinator",
-    name: "总控汇总专家",
-    description: "整合多位专家建议，输出最终可执行方案。",
-    selectable: false
+    title: "短视频脚本",
+    workflowType: "video_scripts",
+    brief: {
+      topic: "宠物玩具短视频",
+      targetAudience: "年轻养宠人群",
+      contentForm: "短视频脚本",
+      coreSellingPoint: "互动好拍、节奏快、能看出宠物真实反应",
+      useScene: "手机竖屏拍摄、家庭自然光、单人执行",
+      emotionOrPainPoint: "不会设计开头钩子，也不会拆镜头",
+      toneStyle: "节奏干脆，适合边拍边念，镜头说明要简单直接",
+      forbiddenWords: "百分百爆款、闭眼买",
+      additionalNotes: "每条都要适合低成本拍摄"
+    }
   }
 ];
 
-export const DEFAULT_ROLE_IDS = ["product", "ops", "copywriter"];
+export const REWRITE_OPTIONS: Array<{
+  mode: RewriteMode;
+  label: string;
+}> = [
+  { mode: "more_conversational", label: "改口语" },
+  { mode: "shorter", label: "改短一点" },
+  { mode: "more_saveworthy", label: "更适合收藏" },
+  { mode: "video_voiceover", label: "改成口播版" }
+];
 
-export const TASK_TEMPLATES = [
-  {
-    title: "写小红书笔记",
-    prompt:
-      "帮我为猫咪互动玩具写 10 篇小红书笔记，目标用户是新手养猫人，要求真实、有场景感、适合种草。"
-  },
-  {
-    title: "生成 30 天选题",
-    prompt:
-      "我卖宠物玩具，请帮我生成 30 天小红书内容选题，覆盖猫玩具、狗玩具、避坑、测评、场景和清单。"
-  },
-  {
-    title: "分析宠物玩具卖点",
-    prompt:
-      "请分析一款宠物互动玩具的小红书卖点，产品特点是耐咬、可互动、适合猫狗日常消耗精力。"
-  },
-  {
-    title: "生成短视频脚本",
-    prompt:
-      "请为宠物玩具生成 5 条小红书短视频脚本，每条包含开头钩子、镜头、口播和结尾引导。"
-  },
-  {
-    title: "生成客服话术",
-    prompt:
-      "请为宠物玩具店生成客服话术，覆盖材质、安全、尺寸、清洁、发货、售后和不爱玩的情况。"
-  },
-  {
-    title: "复盘笔记数据",
-    prompt:
-      "请帮我复盘一篇宠物玩具小红书笔记：曝光 1200，点赞 35，收藏 18，评论 6，进店 12，成交 1。"
-  }
+export const TITLE_STYLE_OPTIONS: Array<{
+  id: TitleStyle;
+  label: string;
+}> = [
+  { id: "emotional", label: "情绪型" },
+  { id: "list", label: "清单型" },
+  { id: "warning", label: "避坑型" },
+  { id: "contrast", label: "反差型" },
+  { id: "experience", label: "经验型" }
 ];
