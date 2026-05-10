@@ -14,6 +14,7 @@ import {
   Settings,
   Smartphone,
   Sparkles,
+  Star,
   Trash2,
   Video,
   WandSparkles
@@ -223,6 +224,200 @@ function Stat({ label, value }: { label: string; value: number }) {
   );
 }
 
+function AssetCard({
+  asset,
+  children = [],
+  isExpanded,
+  onToggleExpand,
+  isSelected,
+  onToggleSelect,
+  isChild = false
+}: {
+  asset: ContentAssetView;
+  children?: ContentAssetView[];
+  isExpanded?: boolean;
+  onToggleExpand?: () => void;
+  isSelected: boolean;
+  onToggleSelect: () => void;
+  isChild?: boolean;
+}) {
+  const {
+    copyText,
+    setPreviewNote,
+    setIsSimulatorPinned,
+    runPrePublishCheck,
+    deleteItem,
+    rewriteAsset,
+    toggleFavorite,
+    updateAssetStatus,
+    checkingAssetId,
+    rewritingAssetId,
+    prePublishChecks
+  } = (window as any).workbenchActions || {};
+
+  return (
+    <div
+      className={cn(
+        "group relative flex flex-col rounded-xl border bg-card transition-all hover:shadow-md",
+        isSelected && "border-primary ring-1 ring-primary",
+        isChild && "ml-6 mt-2 border-dashed border-muted-foreground/30 bg-muted/5"
+      )}
+    >
+      <div className="flex items-start gap-3 p-4">
+        <div className="mt-1 flex flex-col gap-2">
+          <input
+            type="checkbox"
+            className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+            checked={isSelected}
+            onChange={onToggleSelect}
+          />
+          <button
+            type="button"
+            className={cn("text-muted-foreground transition-colors hover:text-amber-500", asset.isFavorite && "text-amber-500")}
+            onClick={() => toggleFavorite?.(asset)}
+          >
+            <Star className={cn("h-4 w-4", asset.isFavorite && "fill-current")} />
+          </button>
+        </div>
+
+        <div className="flex-1 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="outline">{asset.type === "note" ? "图文笔记" : "视频脚本"}</Badge>
+              <Badge variant="secondary" className="text-[10px] uppercase opacity-70">
+                {asset.source}
+              </Badge>
+              <select
+                className={cn(
+                  "h-6 rounded-full border px-2 text-[10px] font-medium outline-none",
+                  asset.status === "draft" && "border-slate-200 bg-slate-50 text-slate-600",
+                  asset.status === "ready" && "border-blue-200 bg-blue-50 text-blue-600",
+                  asset.status === "published" && "border-emerald-200 bg-emerald-50 text-emerald-600"
+                )}
+                value={asset.status}
+                onChange={(e) => updateAssetStatus?.(asset, e.target.value)}
+              >
+                <option value="draft">待打磨</option>
+                <option value="ready">待发布</option>
+                <option value="published">已发布</option>
+              </select>
+            </div>
+            <span className="text-[10px] text-muted-foreground">{new Date(asset.createdAt).toLocaleDateString()}</span>
+          </div>
+
+          <div>
+            <h4 className="text-sm font-semibold">{asset.title}</h4>
+            <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap rounded-lg bg-muted/40 p-3 text-[13px] text-muted-foreground">
+              {asset.body}
+            </pre>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={() => copyText?.(asset.body)}>
+              <Clipboard className="mr-1 h-3.5 w-3.5" />
+              复制
+            </Button>
+            {asset.type === "note" && (
+              <>
+                <Button size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={() => setPreviewNote?.({ title: asset.title, content: asset.body })}>
+                  <Smartphone className="mr-1 h-3.5 w-3.5" />
+                  预览
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 px-2 text-xs"
+                  onClick={() => {
+                    setPreviewNote?.({ title: asset.title, content: asset.body });
+                    setIsSimulatorPinned?.(true);
+                  }}
+                >
+                  <Smartphone className="mr-1 h-3.5 w-3.5" />
+                  常驻
+                </Button>
+              </>
+            )}
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 px-2 text-xs"
+              disabled={checkingAssetId === asset.id}
+              onClick={() => runPrePublishCheck?.(asset)}
+            >
+              <Gauge className="mr-1 h-3.5 w-3.5" />
+              体检
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 px-2 text-xs text-destructive hover:bg-destructive/5"
+              onClick={() => deleteItem?.("assets", asset.id)}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+
+          {!isChild && (
+            <div className="flex flex-wrap gap-2 pt-2">
+              <span className="w-full text-[10px] font-bold uppercase tracking-widest text-muted-foreground/50">改写变体 (Rewrites)</span>
+              {REWRITE_OPTIONS.map((option) => (
+                <Button
+                  key={option.mode}
+                  size="sm"
+                  variant="secondary"
+                  className="h-7 px-2 text-[10px]"
+                  disabled={rewritingAssetId === asset.id}
+                  onClick={() => rewriteAsset?.(asset, option.mode)}
+                >
+                  <WandSparkles className="mr-1 h-3 w-3" />
+                  {option.label}
+                </Button>
+              ))}
+            </div>
+          )}
+
+          {prePublishChecks?.[asset.id] && (
+            <div className="mt-2 rounded-lg border bg-muted/50 p-3 text-xs">
+              <div className="mb-1 flex items-center gap-2 font-medium">
+                <Gauge className="h-3.5 w-3.5" />
+                体检建议
+              </div>
+              <p className="text-muted-foreground">{prePublishChecks[asset.id].overallSuggestion}</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {children.length > 0 && (
+        <div className="border-t bg-muted/5 p-2">
+          <button
+            type="button"
+            className="flex w-full items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-tighter text-muted-foreground hover:text-foreground"
+            onClick={onToggleExpand}
+          >
+            {isExpanded ? "收起改写版本" : `显示 ${children.length} 个改写版本`}
+            <Sparkles className={cn("h-3 w-3 transition-transform", isExpanded && "rotate-180")} />
+          </button>
+
+          {isExpanded && (
+            <div className="space-y-2 pb-2">
+              {children.map((child) => (
+                <AssetCard
+                  key={child.id}
+                  asset={child}
+                  isSelected={isSelected}
+                  onToggleSelect={onToggleSelect}
+                  isChild
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function EmptyState({
   title,
   description,
@@ -270,6 +465,29 @@ export function Workbench() {
   const [isGeneratingTitles, setIsGeneratingTitles] = useState(false);
   const [checkingAssetId, setCheckingAssetId] = useState<string | null>(null);
   const [prePublishChecks, setPrePublishChecks] = useState<Record<string, PrePublishCheckOutput>>({});
+  const [assetViewMode, setAssetViewMode] = useState<"list" | "grid">("list");
+  const [isSimulatorPinned, setIsSimulatorPinned] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [filterType, setFilterType] = useState("all");
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
+  const [expandedAssetIds, setExpandedAssetIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    (window as any).workbenchActions = {
+      copyText,
+      setPreviewNote,
+      setIsSimulatorPinned,
+      runPrePublishCheck,
+      deleteItem,
+      rewriteAsset,
+      toggleFavorite,
+      updateAssetStatus,
+      checkingAssetId,
+      rewritingAssetId,
+      prePublishChecks
+    };
+  }, [checkingAssetId, rewritingAssetId, prePublishChecks]);
 
   async function loadAll() {
     setIsBootstrapping(true);
@@ -582,6 +800,93 @@ export function Workbench() {
     }
   }
 
+  async function toggleFavorite(asset: ContentAssetView) {
+    try {
+      const response = await fetch("/api/assets", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: asset.id, isFavorite: !asset.isFavorite })
+      });
+      const data = (await response.json()) as { asset?: ContentAssetView; error?: string };
+      if (!response.ok || !data.asset) throw new Error(data.error ?? "更新失败。");
+
+      setAssets((current) => current.map((item) => (item.id === asset.id ? data.asset! : item)));
+    } catch (favError) {
+      setError(favError instanceof Error ? favError.favError : "更新失败。");
+    }
+  }
+
+  async function updateAssetStatus(asset: ContentAssetView, status: string) {
+    try {
+      const response = await fetch("/api/assets", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: asset.id, status })
+      });
+      const data = (await response.json()) as { asset?: ContentAssetView; error?: string };
+      if (!response.ok || !data.asset) throw new Error(data.error ?? "状态更新失败。");
+
+      setAssets((current) => current.map((item) => (item.id === asset.id ? data.asset! : item)));
+      setMessage("资产状态已更新。");
+    } catch (statusError) {
+      setError(statusError instanceof Error ? statusError.message : "状态更新失败。");
+    }
+  }
+
+  async function batchDeleteAssets() {
+    if (selectedAssetIds.length === 0) return;
+    if (!confirm(`确认批量删除这 ${selectedAssetIds.length} 项资产？该操作不可恢复。`)) return;
+
+    try {
+      const response = await fetch(`/api/assets?ids=${selectedAssetIds.join(",")}`, { method: "DELETE" });
+      const data = (await response.json()) as { success?: boolean; error?: string };
+      if (!response.ok) throw new Error(data.error ?? "批量删除失败。");
+
+      setAssets((current) => current.filter((item) => !selectedAssetIds.includes(item.id)));
+      setSelectedAssetIds([]);
+      setMessage("批量删除成功。");
+    } catch (batchError) {
+      setError(batchError instanceof Error ? batchError.message : "批量删除失败。");
+    }
+  }
+
+  const getFilteredAssetTrees = () => {
+    let filtered = assets;
+
+    if (searchTerm) {
+      const lower = searchTerm.toLowerCase();
+      filtered = filtered.filter(
+        (a) => a.title.toLowerCase().includes(lower) || a.body.toLowerCase().includes(lower)
+      );
+    }
+
+    if (filterType !== "all") {
+      filtered = filtered.filter((a) => a.type === filterType);
+    }
+
+    if (filterStatus !== "all") {
+      filtered = filtered.filter((a) => a.status === filterStatus);
+    }
+
+    // Build tree
+    const rootAssets = filtered.filter((a) => !a.parentId);
+    const childrenMap = new Map<string, ContentAssetView[]>();
+    filtered.forEach((a) => {
+      if (a.parentId) {
+        const list = childrenMap.get(a.parentId) || [];
+        list.push(a);
+        childrenMap.set(a.parentId, list);
+      }
+    });
+
+    return rootAssets.map((root) => ({
+      ...root,
+      children: childrenMap.get(root.id) || []
+    }));
+  };
+
+  const assetTrees = getFilteredAssetTrees();
+
   const tabs: NavItem[] = [
     { id: "generate", label: "AI生成", description: "结构化创作输入", icon: Sparkles },
     { id: "calendar", label: "内容日历", description: "查看排期与主题", icon: CalendarDays },
@@ -609,23 +914,26 @@ export function Workbench() {
               </div>
             </div>
 
-            <nav className="space-y-2">
+            <nav className="space-y-1">
               {tabs.map((tab) => {
                 const Icon = tab.icon;
+                const isActive = activeTab === tab.id;
                 return (
                   <button
                     key={tab.id}
                     type="button"
                     className={cn(
-                      "flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition-colors hover:bg-accent",
-                      activeTab === tab.id && "bg-accent text-accent-foreground"
+                      "flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition-all duration-200",
+                      isActive 
+                        ? "bg-primary text-primary-foreground shadow-md shadow-primary/20" 
+                        : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                     )}
                     onClick={() => setActiveTab(tab.id)}
                   >
-                    <Icon className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+                    <Icon className={cn("mt-0.5 h-4 w-4 shrink-0", isActive ? "text-primary-foreground" : "text-primary")} aria-hidden />
                     <div>
-                      <div className="text-sm font-medium">{tab.label}</div>
-                      <div className="text-xs text-muted-foreground">{tab.description}</div>
+                      <div className="text-sm font-semibold">{tab.label}</div>
+                      <div className="text-[10px] opacity-80">{tab.description}</div>
                     </div>
                   </button>
                 );
@@ -652,7 +960,7 @@ export function Workbench() {
                 <Stat label="内容资产" value={assets.length} />
                 <Stat label="日历条目" value={calendarItems.length} />
                 <Stat label="笔记" value={assets.filter((asset) => asset.type === "note").length} />
-                <Stat label="改写版本" value={assets.filter((asset) => Boolean(asset.parentId)).length} />
+                <Stat label="改写版" value={assets.filter((asset) => Boolean(asset.parentId)).length} />
               </div>
             </div>
           </header>
@@ -721,118 +1029,127 @@ export function Workbench() {
                     ))}
                   </div>
 
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <label className="space-y-1 text-sm">
-                      <span className="font-medium">内容目标</span>
-                      <select
-                        className="h-10 w-full rounded-md border bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        value={contentGoal}
-                        onChange={(event) => setContentGoal(event.target.value)}
-                      >
-                        {contentGoals.map((goal) => (
-                          <option key={goal} value={goal}>
-                            {goal}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
+                  <div className="space-y-6">
+                    <div className="space-y-4 rounded-xl border bg-muted/20 p-4">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">🎯 核心策略 (Core Strategy)</h3>
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <label className="space-y-1 text-sm">
+                          <span className="font-medium">内容主题</span>
+                          <input
+                            className="h-10 w-full rounded-md border bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            value={brief.topic}
+                            onChange={(event) => updateBrief("topic", event.target.value)}
+                            placeholder="比如：宠物互动玩具种草"
+                          />
+                          <div className="text-[10px] text-muted-foreground text-right">{brief.topic.length}/20</div>
+                        </label>
 
-                    <label className="space-y-1 text-sm">
-                      <span className="font-medium">内容形式</span>
-                      <select
-                        className="h-10 w-full rounded-md border bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        value={brief.contentForm}
-                        onChange={(event) => updateBrief("contentForm", event.target.value)}
-                      >
-                        {contentForms.map((form) => (
-                          <option key={form} value={form}>
-                            {form}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
+                        <label className="space-y-1 text-sm">
+                          <span className="font-medium">目标人群</span>
+                          <input
+                            className="h-10 w-full rounded-md border bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            value={brief.targetAudience}
+                            onChange={(event) => updateBrief("targetAudience", event.target.value)}
+                            placeholder="比如：新手养猫家庭"
+                          />
+                        </label>
+                      </div>
+
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <label className="space-y-1 text-sm">
+                          <span className="font-medium">内容目标</span>
+                          <select
+                            className="h-10 w-full rounded-md border bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            value={contentGoal}
+                            onChange={(event) => setContentGoal(event.target.value)}
+                          >
+                            {contentGoals.map((goal) => (
+                              <option key={goal} value={goal}>
+                                {goal}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+
+                        <label className="space-y-1 text-sm">
+                          <span className="font-medium">内容形式</span>
+                          <select
+                            className="h-10 w-full rounded-md border bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            value={brief.contentForm}
+                            onChange={(event) => updateBrief("contentForm", event.target.value)}
+                          >
+                            {contentForms.map((form) => (
+                              <option key={form} value={form}>
+                                {form}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+                    </div>
+
+                    <div className="space-y-4 rounded-xl border bg-muted/20 p-4">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">✨ 内容感知 (Content Vibe)</h3>
+                      <label className="space-y-1 text-sm">
+                        <span className="font-medium">核心卖点 / 钩子</span>
+                        <Textarea
+                          value={brief.coreSellingPoint}
+                          onChange={(event) => updateBrief("coreSellingPoint", event.target.value)}
+                          placeholder="比如：耐咬、互动性强、真实反应好拍、颜值高"
+                        />
+                      </label>
+
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <label className="space-y-1 text-sm">
+                          <span className="font-medium">使用场景</span>
+                          <Textarea
+                            value={brief.useScene}
+                            onChange={(event) => updateBrief("useScene", event.target.value)}
+                            placeholder="比如：下班回家陪玩、周末在家消耗精力"
+                          />
+                        </label>
+
+                        <label className="space-y-1 text-sm">
+                          <span className="font-medium">情绪 / 痛点</span>
+                          <Textarea
+                            value={brief.emotionOrPainPoint}
+                            onChange={(event) => updateBrief("emotionOrPainPoint", event.target.value)}
+                            placeholder="比如：猫咪无聊拆家、新手养宠手忙脚乱、想给宠物最好的陪伴"
+                          />
+                        </label>
+                      </div>
+
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <label className="space-y-1 text-sm">
+                          <span className="font-medium">语气风格</span>
+                          <Textarea
+                            value={brief.toneStyle}
+                            onChange={(event) => updateBrief("toneStyle", event.target.value)}
+                            placeholder="比如：像有经验的朋友在真实分享"
+                          />
+                        </label>
+
+                        <label className="space-y-1 text-sm">
+                          <span className="font-medium">禁用表达</span>
+                          <Textarea
+                            value={brief.forbiddenWords}
+                            onChange={(event) => updateBrief("forbiddenWords", event.target.value)}
+                            placeholder="比如：绝对安全、闭眼买、保证爆单"
+                          />
+                        </label>
+                      </div>
+
+                      <label className="space-y-1 text-sm">
+                        <span className="font-medium">补充说明</span>
+                        <Textarea
+                          className="min-h-20"
+                          value={brief.additionalNotes}
+                          onChange={(event) => updateBrief("additionalNotes", event.target.value)}
+                          placeholder="把这次特别在意的要求补进来，比如更口语、更多清单感、适合收藏等"
+                        />
+                      </label>
+                    </div>
                   </div>
-
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <label className="space-y-1 text-sm">
-                      <span className="font-medium">主题</span>
-                      <input
-                        className="h-10 w-full rounded-md border bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        value={brief.topic}
-                        onChange={(event) => updateBrief("topic", event.target.value)}
-                        placeholder="比如：宠物互动玩具种草"
-                      />
-                    </label>
-
-                    <label className="space-y-1 text-sm">
-                      <span className="font-medium">目标人群</span>
-                      <input
-                        className="h-10 w-full rounded-md border bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        value={brief.targetAudience}
-                        onChange={(event) => updateBrief("targetAudience", event.target.value)}
-                        placeholder="比如：新手养猫家庭"
-                      />
-                    </label>
-                  </div>
-
-                  <label className="space-y-1 text-sm">
-                    <span className="font-medium">核心卖点</span>
-                    <Textarea
-                      value={brief.coreSellingPoint}
-                      onChange={(event) => updateBrief("coreSellingPoint", event.target.value)}
-                      placeholder="比如：耐咬、互动性强、真实反应好拍、颜值高"
-                    />
-                  </label>
-
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <label className="space-y-1 text-sm">
-                      <span className="font-medium">使用场景</span>
-                      <Textarea
-                        value={brief.useScene}
-                        onChange={(event) => updateBrief("useScene", event.target.value)}
-                        placeholder="比如：下班回家陪玩、周末在家消耗精力"
-                      />
-                    </label>
-
-                    <label className="space-y-1 text-sm">
-                      <span className="font-medium">情绪 / 痛点</span>
-                      <Textarea
-                        value={brief.emotionOrPainPoint}
-                        onChange={(event) => updateBrief("emotionOrPainPoint", event.target.value)}
-                        placeholder="比如：猫咪无聊拆家，不知道买什么互动玩具"
-                      />
-                    </label>
-                  </div>
-
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <label className="space-y-1 text-sm">
-                      <span className="font-medium">语气风格</span>
-                      <Textarea
-                        value={brief.toneStyle}
-                        onChange={(event) => updateBrief("toneStyle", event.target.value)}
-                        placeholder="比如：像有经验的朋友在真实分享"
-                      />
-                    </label>
-
-                    <label className="space-y-1 text-sm">
-                      <span className="font-medium">禁用表达</span>
-                      <Textarea
-                        value={brief.forbiddenWords}
-                        onChange={(event) => updateBrief("forbiddenWords", event.target.value)}
-                        placeholder="比如：绝对安全、闭眼买、保证爆单"
-                      />
-                    </label>
-                  </div>
-
-                  <label className="space-y-1 text-sm">
-                    <span className="font-medium">补充说明</span>
-                    <Textarea
-                      className="min-h-28"
-                      value={brief.additionalNotes}
-                      onChange={(event) => updateBrief("additionalNotes", event.target.value)}
-                      placeholder="把这次特别在意的要求补进来，比如更口语、更多清单感、适合收藏等"
-                    />
-                  </label>
 
                   <Button disabled={isLoading || !brief.topic.trim()} onClick={runWorkflow}>
                     {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
@@ -902,8 +1219,10 @@ export function Workbench() {
                         {titleWorkshop.titles.map((title, index) => (
                           <div key={`${title.text}-${index}`} className="rounded-lg border bg-muted/30 p-3">
                             <div className="flex flex-wrap items-center gap-2">
-                              <Badge>{TITLE_STYLE_OPTIONS.find((item) => item.id === title.style)?.label ?? title.style}</Badge>
-                              <Badge>{title.scoreHint}</Badge>
+                              <Badge variant="outline">{TITLE_STYLE_OPTIONS.find((item) => item.id === title.style)?.label ?? title.style}</Badge>
+                              <Badge className="bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 border-amber-500/30">
+                                爆款潜质: {title.scoreHint}
+                              </Badge>
                             </div>
                             <div className="mt-2 text-sm font-medium">{title.text}</div>
                             <div className="mt-1 text-xs text-muted-foreground">{title.intent}</div>
@@ -949,11 +1268,27 @@ export function Workbench() {
                       </div>
 
                       {lastOutput.notes[0] ? (
-                        <div>
-                          <h3 className="text-sm font-medium">示例笔记</h3>
-                          <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-lg bg-muted/60 p-4 text-sm text-muted-foreground">
-                            {lastOutput.notes[0].body}
-                          </pre>
+                        <div className="space-y-4">
+                          <div>
+                            <h3 className="text-sm font-medium">示例笔记预览</h3>
+                            <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-lg bg-muted/60 p-4 text-sm text-muted-foreground">
+                              {lastOutput.notes[0].body}
+                            </pre>
+                          </div>
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            <div className="rounded-lg border bg-emerald-500/5 p-3">
+                              <div className="text-xs font-medium text-emerald-700">📸 封面视觉建议</div>
+                              <p className="mt-1 text-sm">{lastOutput.notes[0].visualSuggestion}</p>
+                            </div>
+                            <div className="rounded-lg border bg-blue-500/5 p-3">
+                              <div className="text-xs font-medium text-blue-700">💬 首评预设</div>
+                              <p className="mt-1 text-sm">{lastOutput.notes[0].firstComment}</p>
+                            </div>
+                            <div className="rounded-lg border bg-purple-500/5 p-3 sm:col-span-2">
+                              <div className="text-xs font-medium text-purple-700">🔥 互动触发点</div>
+                              <p className="mt-1 text-sm">{lastOutput.notes[0].engagementTrigger}</p>
+                            </div>
+                          </div>
                         </div>
                       ) : null}
                       </>
@@ -1058,155 +1393,104 @@ export function Workbench() {
           ) : null}
 
           {!isBootstrapping && activeTab === "assets" ? (
-            <Card>
-              <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                  <CardTitle>内容资产库</CardTitle>
-                  <CardDescription>现在可以直接在资产库里做二改，并把新版本继续沉淀下来。</CardDescription>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    variant="outline"
-                    disabled={assets.length === 0}
-                    onClick={() => downloadFile("content-assets.md", assetsToMarkdown(assets), "text/markdown")}
-                  >
-                    <Download className="h-4 w-4" />
-                    导出 MD
-                  </Button>
-                  <Button
-                    variant="outline"
-                    disabled={assets.length === 0}
-                    onClick={() => downloadFile("content-assets.csv", assetsToCsv(assets), "text/csv")}
-                  >
-                    <Download className="h-4 w-4" />
-                    导出 CSV
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent className="grid gap-4 lg:grid-cols-2">
-                {assets.length > 0 ? (
-                  assets.map((asset) => (
-                    <div key={asset.id} className="rounded-lg border bg-card p-4">
-                      <div className="mb-2 flex flex-wrap items-center gap-2">
-                        <Badge>{asset.type}</Badge>
-                        <Badge>{asset.source}</Badge>
-                        {asset.variantType ? <Badge>{asset.variantType}</Badge> : null}
-                        {asset.parentId ? <Badge>改写版</Badge> : null}
-                        <span className="text-xs text-muted-foreground">{formatDate(asset.createdAt)}</span>
-                      </div>
-
-                      <h3 className="font-semibold">{asset.title}</h3>
-                      <pre className="mt-3 max-h-56 overflow-auto whitespace-pre-wrap rounded-md bg-muted/60 p-3 text-sm text-muted-foreground">
-                        {asset.body}
-                      </pre>
-
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <Button size="sm" variant="outline" onClick={() => copyText(asset.body)}>
-                          <Clipboard className="h-4 w-4" />
-                          复制
-                        </Button>
-                        {asset.type === "note" ? (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => setPreviewNote({ title: asset.title, content: asset.body })}
-                          >
-                            <Smartphone className="h-4 w-4" />
-                            预览
-                          </Button>
-                        ) : null}
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={checkingAssetId === asset.id}
-                          onClick={() => runPrePublishCheck(asset)}
-                        >
-                          {checkingAssetId === asset.id ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Gauge className="h-4 w-4" />
-                          )}
-                          发布前检查
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                          onClick={() => deleteItem("assets", asset.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {REWRITE_OPTIONS.map((option) => (
-                          <Button
-                            key={`${asset.id}-${option.mode}`}
-                            size="sm"
-                            variant="secondary"
-                            disabled={rewritingAssetId === asset.id}
-                            onClick={() => rewriteAsset(asset, option.mode)}
-                          >
-                            {rewritingAssetId === asset.id ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <WandSparkles className="h-4 w-4" />
-                            )}
-                            {option.label}
-                          </Button>
-                        ))}
-                      </div>
-
-                      {prePublishChecks[asset.id] ? (
-                        <div className="mt-4 rounded-lg border bg-muted/30 p-4">
-                          <div className="mb-2 flex items-center gap-2">
-                            <Gauge className="h-4 w-4" />
-                            <div className="text-sm font-medium">发布前检查</div>
-                          </div>
-                          <p className="text-sm text-muted-foreground">
-                            {prePublishChecks[asset.id]?.overallSuggestion}
-                          </p>
-                          <div className="mt-3 space-y-2">
-                            {prePublishChecks[asset.id]?.checks.map((check) => (
-                              <div key={`${asset.id}-${check.name}`} className="rounded-md border bg-card p-3">
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <Badge>{check.name}</Badge>
-                                  <Badge
-                                    className={cn(
-                                      check.status === "good" && "border-emerald-500/40 text-emerald-700",
-                                      check.status === "watch" && "border-amber-500/40 text-amber-700",
-                                      check.status === "fix" && "border-red-500/40 text-red-700"
-                                    )}
-                                  >
-                                    {check.status === "good"
-                                      ? "良好"
-                                      : check.status === "watch"
-                                        ? "可优化"
-                                        : "建议修改"}
-                                  </Badge>
-                                </div>
-                                <p className="mt-2 text-sm text-muted-foreground">{check.advice}</p>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ) : null}
+            <div className="space-y-4">
+              <Card>
+                <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <CardTitle>内容资产库</CardTitle>
+                    <CardDescription>管理、改写、分发你的内容资产。</CardDescription>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex items-center gap-2 rounded-md border bg-muted/20 px-3 py-1">
+                      <Sparkles className="h-4 w-4 text-primary" />
+                      <input
+                        className="bg-transparent text-sm outline-none"
+                        placeholder="搜索内容或标题..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                      />
                     </div>
+                    <select
+                      className="h-9 rounded-md border bg-card px-2 text-xs outline-none"
+                      value={filterType}
+                      onChange={(e) => setFilterType(e.target.value)}
+                    >
+                      <option value="all">全部类型</option>
+                      <option value="note">图文笔记</option>
+                      <option value="video_script">视频脚本</option>
+                    </select>
+                    <select
+                      className="h-9 rounded-md border bg-card px-2 text-xs outline-none"
+                      value={filterStatus}
+                      onChange={(e) => setFilterStatus(e.target.value)}
+                    >
+                      <option value="all">全部状态</option>
+                      <option value="draft">待打磨</option>
+                      <option value="ready">待发布</option>
+                      <option value="published">已发布</option>
+                    </select>
+                    <div className="flex rounded-md border p-1">
+                      <button
+                        type="button"
+                        className={cn("px-2 py-1 text-xs rounded", assetViewMode === "list" ? "bg-accent" : "hover:bg-accent/50")}
+                        onClick={() => setAssetViewMode("list")}
+                      >
+                        列表
+                      </button>
+                      <button
+                        type="button"
+                        className={cn("px-2 py-1 text-xs rounded", assetViewMode === "grid" ? "bg-accent" : "hover:bg-accent/50")}
+                        onClick={() => setAssetViewMode("grid")}
+                      >
+                        网格
+                      </button>
+                    </div>
+                  </div>
+                </CardHeader>
+              </Card>
+
+              {selectedAssetIds.length > 0 && (
+                <div className="flex items-center justify-between rounded-xl bg-primary/10 border border-primary/20 px-4 py-2 text-sm text-primary">
+                  <div className="flex items-center gap-3">
+                    <span className="font-semibold">已选择 {selectedAssetIds.length} 项资产</span>
+                    <Button size="sm" variant="ghost" className="h-8 text-primary hover:bg-primary/10" onClick={() => setSelectedAssetIds([])}>
+                      取消选择
+                    </Button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" variant="outline" className="h-8" onClick={() => downloadFile("batch-export.csv", assetsToCsv(assets.filter(a => selectedAssetIds.includes(a.id))), "text/csv")}>
+                      <Download className="h-3 w-3" />
+                      导出
+                    </Button>
+                    <Button size="sm" variant="ghost" className="h-8 text-destructive hover:bg-destructive/10" onClick={batchDeleteAssets}>
+                      <Trash2 className="h-3 w-3" />
+                      批量删除
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              <div className={cn("grid gap-4", assetViewMode === "grid" ? "sm:grid-cols-2 lg:grid-cols-3" : "lg:grid-cols-1")}>
+                {assetTrees.length > 0 ? (
+                  assetTrees.map((root) => (
+                    <AssetCard
+                      key={root.id}
+                      asset={root}
+                      children={root.children}
+                      isExpanded={expandedAssetIds.includes(root.id)}
+                      onToggleExpand={() => setExpandedAssetIds(prev => prev.includes(root.id) ? prev.filter(id => id !== root.id) : [...prev, root.id])}
+                      isSelected={selectedAssetIds.includes(root.id)}
+                      onToggleSelect={() => setSelectedAssetIds(prev => prev.includes(root.id) ? prev.filter(id => id !== root.id) : [...prev, root.id])}
+                    />
                   ))
                 ) : (
                   <EmptyState
-                    title="还没有内容资产"
-                    description="生成笔记或短视频脚本后，这里会自动保存下来，而且可以继续二次改写。"
-                    action={
-                      <Button onClick={() => setActiveTab("generate")}>
-                        <Sparkles className="h-4 w-4" />
-                        去生成内容
-                      </Button>
-                    }
+                    title="未找到匹配的资产"
+                    description="换个搜索词或者调整筛选条件试试。"
                   />
                 )}
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           ) : null}
 
           {!isBootstrapping && activeTab === "settings" ? (
@@ -1402,6 +1686,32 @@ export function Workbench() {
         title={previewNote?.title ?? ""}
         content={previewNote?.content ?? ""}
       />
+
+      {isSimulatorPinned && previewNote && (
+        <div className="fixed bottom-6 right-6 z-40 hidden w-72 lg:block">
+          <div className="relative rounded-3xl border-4 border-muted bg-background shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between bg-muted/50 px-4 py-2 border-b">
+              <span className="text-[10px] font-bold uppercase tracking-widest opacity-50">Sticky Preview</span>
+              <button 
+                type="button"
+                className="text-muted-foreground hover:text-foreground"
+                onClick={() => setIsSimulatorPinned(false)}
+              >
+                <Trash2 className="h-3 w-3" />
+              </button>
+            </div>
+            <div className="aspect-[9/19] scale-[1.0] origin-top h-[450px]">
+               <MobileSimulator
+                  isOpen={true}
+                  onClose={() => {}}
+                  title={previewNote.title}
+                  content={previewNote.content}
+                  isSticky={true}
+                />
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

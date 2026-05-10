@@ -22,18 +22,24 @@ const workflowSchema = {
         properties: {
           title: { type: "string" },
           coverText: { type: "string" },
+          visualSuggestion: { type: "string" },
           body: { type: "string" },
           tags: { type: "array", items: { type: "string" } },
           shootingSuggestion: { type: "string" },
+          firstComment: { type: "string" },
+          engagementTrigger: { type: "string" },
           targetAudience: { type: "string" },
           riskTip: { type: "string" }
         },
         required: [
           "title",
           "coverText",
+          "visualSuggestion",
           "body",
           "tags",
           "shootingSuggestion",
+          "firstComment",
+          "engagementTrigger",
           "targetAudience",
           "riskTip"
         ]
@@ -65,9 +71,10 @@ const workflowSchema = {
           hook: { type: "string" },
           shots: { type: "array", items: { type: "string" } },
           voiceover: { type: "string" },
-          ending: { type: "string" }
+          ending: { type: "string" },
+          interactionHook: { type: "string" }
         },
-        required: ["title", "hook", "shots", "voiceover", "ending"]
+        required: ["title", "hook", "shots", "voiceover", "ending", "interactionHook"]
       }
     },
     nextActions: { type: "array", items: { type: "string" } }
@@ -199,23 +206,25 @@ function getWorkflowPrompt(type: WorkflowType) {
 任务：生成 3 篇小红书图文笔记。
 要求：
 1. notes 必须正好返回 3 条。
-2. 每条都要包含标题、封面文案、正文、标签、拍摄建议、适合人群和风险提醒。
-3. calendar 可以返回 3 条配套发布安排。
-4. scripts 返回空数组或与笔记相关的简单视频改编方向。`,
+2. 每条都要包含标题、封面文案、视觉建议（封面排版与氛围）、正文、标签、拍摄建议、首评预设、互动触发点、适合人群和风险提醒。
+3. 视觉建议要具体：如“左侧大字报+右侧产品细节图，背景使用奶油色”。
+4. 首评预设要像真实用户：如“姐妹们，我蹲这个好久了，真的绝！”。
+5. 互动触发点要能引导评论：如“文末提问‘大家更喜欢哪种颜色？’”。
+6. calendar 可以返回 3 条配套发布安排。`,
     content_calendar: `${base}
 任务：生成 30 天内容日历。
 要求：
 1. calendar 必须正好返回 30 条。
 2. 每条都要包含 day、topic、format、angle、assetTitle、goal。
-3. 选题要覆盖图文、短视频、测评、避坑、清单和生活场景。
+3. 选题要符合阶梯式节奏：第1周侧重人设与专业干货，第2-3周侧重种草与真实体验，第4周侧重转化与大促感。
 4. notes 最多返回 3 条代表性样稿，scripts 最多返回 2 条参考脚本。`,
     video_scripts: `${base}
 任务：生成短视频脚本。
 要求：
 1. scripts 至少返回 8 条。
-2. 每条都要包含标题、开头钩子、镜头列表、口播和结尾引导。
-3. notes 可以返回 2-3 条对应视频标题的图文改写版本。
-4. calendar 可以返回 7 条短视频发布安排。`
+2. 每条都要包含标题、开头钩子、镜头列表、口播、结尾引导和互动钩子。
+3. 互动钩子要设计在视频中间或结尾，引导点赞收藏或回复暗号。
+4. notes 可以返回 2-3 条对应视频标题的图文改写版本。`
   };
 
   return prompts[type];
@@ -368,18 +377,20 @@ export async function runRewrite({
 
 function getTitleWorkshopPrompt(preferredStyles: TitleStyle[]) {
   return `
-你是小红书标题编辑，擅长把同一个主题拆成多种可点击、可收藏、可测试的标题版本。
+你是小红书爆文标题专家，擅长利用人性弱点和心理钩子制造点击欲望。
+任务：围绕创作 brief 生成 12 个极具诱惑力的标题。
 
-任务：
-1. 围绕用户给出的创作 brief 生成 12 个标题。
-2. 标题必须覆盖这些风格：${preferredStyles.join(", ")}。
-3. 每个标题都要标出 style、intent 和 scoreHint。
+标题必须包含以下心理策略：
+1. 利益暴击（清单型/经验型）：直接给结果。
+2. 恐惧/焦虑（避坑型）：不看就亏。
+3. 反差冲突（反差型）：打破认知。
+4. 情绪共鸣（情绪型）：说出心声。
 
 要求：
-1. 标题要像真实创作者会发的，不要像广告语。
-2. 不要使用夸大承诺、医疗化、绝对化表达。
-3. 同一批标题要有明显差异，不要只是换几个词。
-4. scoreHint 用简短中文说明它更偏点击、收藏、互动还是转化。
+1. 风格覆盖：${preferredStyles.join(", ")}。
+2. 必须包含小红书特色表情符号（Emoji），但不要堆砌。
+3. 标题要短小精悍，核心关键词前置，避免书面语。
+4. scoreHint 评估该标题的“爆款潜质”（1-10分）并说明原因。
 `;
 }
 
@@ -443,21 +454,22 @@ export async function runTitleWorkshop({
 
 function getPrePublishCheckPrompt(assetType: string) {
   return `
-你是一个资深小红书内容编辑，负责在发布前帮创作者做最后一轮体检。
+你是一个资深小红书内容编辑，负责在发布前帮创作者做最后的一轮“流量体检”与“合规雷达”扫描。
 当前内容类型：${assetType}
 
-请至少检查这些维度：
-1. 标题吸引力
-2. 开头钩子
-3. 收藏感/干货感
-4. 互动引导
-5. 风险表达
-6. 结构完整度
+请深度检查这些维度：
+1. 标题吸引力：是否有心理钩子？是否在瀑布流中能一眼抓人？
+2. 封面文案：是否清晰？是否传达了核心利益点？
+3. 开头 3 行：是否在 2 秒内留住了用户？
+4. 收藏/干货密度：内容是否值得用户点“收藏”？
+5. 互动伏笔：是否设计了让用户想评论的槽点或问题？
+6. 违规词/限流风险：严查医疗词、绝对化用词、诱导私下交易等。
+7. SEO 埋点：核心关键词是否自然融入？
 
 要求：
-1. 每一项都要给出明确 status：good、watch 或 fix。
-2. advice 必须具体，告诉创作者哪里该改、怎么改。
-3. overallSuggestion 用 1-2 句话总结这条内容现在更适合直接发，还是建议再改一下。
+1. 每一项都要给出明确 status：good（优秀）、watch（建议微调）、fix（必须修改）。
+2. advice 必须毒舌且精准，直接告诉创作者哪里“太AI了”或“太硬广了”，并给出改写范例。
+3. overallSuggestion 用 1-2 句话总结这条内容现在的爆文潜质评分（1-10分）。
 4. 只输出 JSON。
 `;
 }

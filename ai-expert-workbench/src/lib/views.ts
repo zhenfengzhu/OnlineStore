@@ -11,6 +11,8 @@ export function toAssetView(asset: ContentAsset): ContentAssetView {
     source: asset.source,
     parentId: asset.parentId,
     variantType: asset.variantType,
+    status: asset.status,
+    isFavorite: asset.isFavorite,
     createdAt: asset.createdAt.toISOString()
   };
 }

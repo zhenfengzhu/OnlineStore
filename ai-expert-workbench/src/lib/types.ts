@@ -7,6 +7,8 @@ export type ContentAssetView = {
   source: string;
   parentId: string | null;
   variantType: string | null;
+  status: string;
+  isFavorite: boolean;
   createdAt: string;
 };
 
@@ -27,9 +29,12 @@ export type WorkflowType = "thirty_notes" | "content_calendar" | "video_scripts"
 export type GeneratedNote = {
   title: string;
   coverText: string;
+  visualSuggestion: string;
   body: string;
   tags: string[];
   shootingSuggestion: string;
+  firstComment: string;
+  engagementTrigger: string;
   targetAudience: string;
   riskTip: string;
 };
@@ -49,6 +54,7 @@ export type VideoScript = {
   shots: string[];
   voiceover: string;
   ending: string;
+  interactionHook: string;
 };
 
 export type WorkflowOutput = {

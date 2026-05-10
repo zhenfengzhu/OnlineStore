@@ -13,9 +13,35 @@ export async function GET() {
   return NextResponse.json({ assets: assets.map(toAssetView) });
 }
 
+export async function PATCH(request: Request) {
+  const body = await request.json();
+  const { id, status, isFavorite } = body;
+
+  if (!id) return NextResponse.json({ error: "Missing ID" }, { status: 400 });
+
+  const asset = await prisma.contentAsset.update({
+    where: { id },
+    data: {
+      ...(status !== undefined && { status }),
+      ...(isFavorite !== undefined && { isFavorite })
+    }
+  });
+
+  return NextResponse.json({ asset: toAssetView(asset) });
+}
+
 export async function DELETE(request: Request) {
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
+  const ids = searchParams.get("ids")?.split(",");
+
+  if (ids && ids.length > 0) {
+    await prisma.contentAsset.deleteMany({
+      where: { id: { in: ids } }
+    });
+    return NextResponse.json({ success: true });
+  }
+
   if (!id) return NextResponse.json({ error: "Missing ID" }, { status: 400 });
   await prisma.contentAsset.delete({ where: { id } });
   return NextResponse.json({ success: true });

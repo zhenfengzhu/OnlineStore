@@ -16,6 +16,8 @@ model ContentAsset {
   source      String
   parentId    String?
   variantType String?
+  status      String   @default("draft")
+  isFavorite  Boolean  @default(false)
   createdAt   DateTime @default(now())
 
   @@index([type])

@@ -8,6 +8,7 @@ interface MobileSimulatorProps {
   content: string;
   coverImage?: string;
   authorName?: string;
+  isSticky?: boolean;
 }
 
 export function MobileSimulator({
@@ -16,7 +17,8 @@ export function MobileSimulator({
   title,
   content,
   coverImage,
-  authorName = "品牌官方账号"
+  authorName = "品牌官方账号",
+  isSticky = false
 }: MobileSimulatorProps) {
   useEffect(() => {
     if (isOpen) {
@@ -30,6 +32,32 @@ export function MobileSimulator({
   }, [isOpen]);
 
   if (!isOpen) return null;
+
+  if (isSticky) {
+    return (
+      <div className="relative flex h-full w-full flex-col overflow-hidden bg-white">
+        {/*刘海屏*/}
+        <div className="absolute left-1/2 top-0 z-50 h-3 w-16 -translate-x-1/2 rounded-b-xl bg-zinc-900"></div>
+        {/* 顶部导航 */}
+        <div className="relative z-40 flex items-center justify-between px-3 pt-6 pb-1">
+          <ChevronLeft className="h-4 w-4" />
+          <div className="flex items-center gap-1.5 rounded-full bg-black/20 px-2 py-0.5 text-white backdrop-blur-sm">
+            <div className="h-4 w-4 overflow-hidden rounded-full bg-rose-400"></div>
+            <span className="text-[10px] font-medium">{authorName}</span>
+          </div>
+          <MoreHorizontal className="h-4 w-4" />
+        </div>
+        {/* 滚动内容区 */}
+        <div className="flex-1 overflow-y-auto -mt-10" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
+          <div className="relative w-full pb-[133%] bg-zinc-100"></div>
+          <div className="px-3 pb-12 pt-2">
+            <h1 className="mb-2 text-[14px] font-bold leading-tight text-zinc-900">{title}</h1>
+            <div className="text-[12px] leading-relaxed text-zinc-800 whitespace-pre-wrap">{content}</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-background/80 backdrop-blur-sm p-4 sm:p-6">

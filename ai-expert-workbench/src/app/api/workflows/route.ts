@@ -16,17 +16,23 @@ function noteToMarkdown(note: WorkflowOutput["notes"][number]) {
   return [
     `# ${note.title}`,
     "",
-    `封面文案：${note.coverText}`,
+    `📸 封面视觉建议：${note.visualSuggestion}`,
+    "",
+    `📝 封面文案：${note.coverText}`,
     "",
     note.body,
     "",
-    `标签：${note.tags.join(" ")}`,
+    `🏷️ 标签：${note.tags.join(" ")}`,
     "",
-    `拍摄建议：${note.shootingSuggestion}`,
+    `🎬 拍摄建议：${note.shootingSuggestion}`,
     "",
-    `适合人群：${note.targetAudience}`,
+    `💬 首评预设：${note.firstComment}`,
     "",
-    `风险提醒：${note.riskTip}`
+    `🔥 互动触发点：${note.engagementTrigger}`,
+    "",
+    `👥 适合人群：${note.targetAudience}`,
+    "",
+    `⚠️ 风险提醒：${note.riskTip}`
   ].join("\n");
 }
 
@@ -34,14 +40,16 @@ function scriptToMarkdown(script: WorkflowOutput["scripts"][number]) {
   return [
     `# ${script.title}`,
     "",
-    `开头钩子：${script.hook}`,
+    `🪝 开头钩子：${script.hook}`,
     "",
-    "镜头：",
+    "🎥 镜头说明：",
     ...script.shots.map((shot, index) => `${index + 1}. ${shot}`),
     "",
-    `口播：${script.voiceover}`,
+    `🎤 口播：${script.voiceover}`,
     "",
-    `结尾引导：${script.ending}`
+    `🔄 互动钩子：${script.interactionHook}`,
+    "",
+    `🔚 结尾引导：${script.ending}`
   ].join("\n");
 }
 
