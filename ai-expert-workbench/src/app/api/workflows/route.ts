@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getModelConfigError, hasModelConfig, runWorkflow } from "@/lib/openai";
+import { getModelConfigError, hasModelConfig, runWorkflow, runExpertSkill } from "@/lib/openai";
 import { prisma } from "@/lib/prisma";
 import type { WorkflowOutput, WorkflowType } from "@/lib/types";
 
@@ -109,10 +109,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: getModelConfigError() }, { status: 400 });
   }
 
-  const body = (await request.json()) as WorkflowBody;
+  const body = (await request.json()) as WorkflowBody & { type: string };
   const type = body.type;
 
-  if (!type || !workflowTypes.includes(type)) {
+  if (type === "expert_skill") {
+    const userInput = body.userInput?.trim();
+    if (!userInput) return NextResponse.json({ error: "请输入专家指令。" }, { status: 400 });
+    const result = await runExpertSkill({ userInput });
+    return NextResponse.json(result);
+  }
+
+  if (!type || !workflowTypes.includes(type as WorkflowType)) {
     return NextResponse.json({ error: "未知工作流类型。" }, { status: 400 });
   }
 
@@ -121,8 +128,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "请输入创作说明。" }, { status: 400 });
   }
 
-  const output = await runWorkflow({ type, userInput });
-  const persistence = await persistWorkflowOutput(type, output);
+  const output = await runWorkflow({ type: type as WorkflowType, userInput });
+  const persistence = await persistWorkflowOutput(type as WorkflowType, output);
 
   return NextResponse.json({ output, persistence });
 }

@@ -534,3 +534,23 @@ export async function runPrePublishCheck({
 
   return parseOutput<PrePublishCheckOutput>(response.output_text);
 }
+export async function runExpertSkill({
+  userInput
+}: {
+  userInput: string;
+}) {
+  const client = getClient();
+
+  const response = await client.chat.completions.create({
+    model: getModel(),
+    messages: [
+      {
+        role: "system",
+        content: "你是一位专业的小红书运营专家。请根据用户的指令和输入，提供专业、毒舌且极具实操性的建议。字数不限，但要字字珠玑。"
+      },
+      { role: "user", content: userInput }
+    ]
+  });
+
+  return { output: response.choices[0]?.message?.content ?? "" };
+}

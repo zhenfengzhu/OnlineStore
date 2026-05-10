@@ -224,6 +224,45 @@ function Stat({ label, value }: { label: string; value: number }) {
   );
 }
 
+const DEFAULT_SKILLS: ExpertSkill[] = [
+  {
+    id: "seo_expert",
+    name: "关键词/SEO专家",
+    description: "分析当下流量词，埋入 SEO 钩子，提升搜索权重。",
+    icon: "Sparkles",
+    prompt: "你是一位资深的小红书 SEO 专家。请根据用户提供的内容主题，列出 5-8 个高流量关键词，并建议如何自然地埋入正文前 50 字中。",
+    placeholder: "比如：猫咪互动玩具、新手养猫、宠物好物分享...",
+    inputLabel: "输入内容主题或核心关键词"
+  },
+  {
+    id: "hook_master",
+    name: "心理学/钩子大师",
+    description: "专攻第一句话和前 3 秒悬念，让用户不自觉点开并看完。",
+    icon: "Gauge",
+    prompt: "你是一位精通用户心理学的文案大师。请根据用户的内容，创作 3 个极具吸引力的“第一句话”钩子，分别针对：好奇心、利益诱惑、恐惧提醒。",
+    placeholder: "比如：我正在写一篇关于猫咪拆家的笔记...",
+    inputLabel: "输入笔记的初稿或核心内容"
+  },
+  {
+    id: "visual_designer",
+    name: "视觉/封面美化师",
+    description: "提供保姆级的封面排版建议、配色方案和字体选择。",
+    icon: "PanelsTopLeft",
+    prompt: "你是一位专业的小红书视觉设计师。请根据用户的主题，提供 2 套封面的设计方案，包括：实拍图构图建议、标题字体的选择、主色调建议。",
+    placeholder: "比如：一篇关于独居生活好物分享的笔记...",
+    inputLabel: "描述你的内容主题和核心卖点"
+  },
+  {
+    id: "community_moderator",
+    name: "评论区气氛组",
+    description: "设计能引发讨论的“槽点”或“问答”，提升互动率。",
+    icon: "MessageSquareQuote",
+    prompt: "你是一位精通社区运营的专家。请为这篇笔记设计 3 个能够引发大量评论的“互动埋点”或者一个让人忍不住想反驳/补充的问题。",
+    placeholder: "比如：一篇关于如何科学喂养猫咪的干货...",
+    inputLabel: "输入你的笔记内容概要"
+  }
+];
+
 function AssetCard({
   asset,
   children = [],
@@ -472,6 +511,13 @@ export function Workbench() {
   const [filterStatus, setFilterStatus] = useState("all");
   const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
   const [expandedAssetIds, setExpandedAssetIds] = useState<string[]>([]);
+  const [expertSkills, setExpertSkills] = useState<ExpertSkill[]>([]);
+  const [currentSkillId, setCurrentSkillId] = useState<string>("");
+  const [skillInput, setSkillInput] = useState("");
+  const [skillSession, setSkillSession] = useState<ExpertSession | null>(null);
+  const [isSkillLoading, setIsSkillLoading] = useState(false);
+  const [isImportingSkill, setIsImportingSkill] = useState(false);
+  const [importJson, setImportJson] = useState("");
 
   useEffect(() => {
     (window as any).workbenchActions = {
@@ -508,10 +554,87 @@ export function Workbench() {
     }
   }
 
+  async function loadSkills() {
+    try {
+      const response = await fetch("/api/skills");
+      const data = await response.json();
+      if (data.skills && data.skills.length > 0) {
+        setExpertSkills(data.skills);
+        setCurrentSkillId(data.skills[0].id);
+      } else {
+        // Seed default skills if empty
+        let successCount = 0;
+        for (const skill of DEFAULT_SKILLS) {
+          const { id, ...skillData } = skill;
+          const res = await fetch("/api/skills", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(skillData)
+          });
+          if (res.ok) successCount++;
+        }
+        
+        if (successCount > 0) {
+          // Only retry once if at least one skill was seeded
+          const secondResponse = await fetch("/api/skills");
+          const secondData = await secondResponse.json();
+          if (secondData.skills && secondData.skills.length > 0) {
+            setExpertSkills(secondData.skills);
+            setCurrentSkillId(secondData.skills[0].id);
+          }
+        } else {
+          // If seeding failed, fallback to default skills in UI state
+          setExpertSkills(DEFAULT_SKILLS);
+          setCurrentSkillId(DEFAULT_SKILLS[0].id);
+          console.warn("Database seeding failed, falling back to local defaults.");
+        }
+      }
+    } catch (e) {
+      console.error("Failed to load skills", e);
+      // Fallback
+      setExpertSkills(DEFAULT_SKILLS);
+      setCurrentSkillId(DEFAULT_SKILLS[0].id);
+    }
+  }
+
+  async function importSkill() {
+    try {
+      const parsed = JSON.parse(importJson);
+      const skillsToImport = Array.isArray(parsed) ? parsed : [parsed];
+
+      for (const skill of skillsToImport) {
+        await fetch("/api/skills", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(skill)
+        });
+      }
+      
+      setImportJson("");
+      setIsImportingSkill(false);
+      await loadSkills();
+      setMessage("技能导入成功。");
+    } catch (e) {
+      setError("导入失败：JSON 格式不正确。");
+    }
+  }
+
+  async function deleteSkill(id: string) {
+    if (!confirm("确认删除该专家技能？")) return;
+    try {
+      await fetch(`/api/skills?id=${id}`, { method: "DELETE" });
+      await loadSkills();
+      setMessage("技能已删除。");
+    } catch (e) {
+      setError("删除失败。");
+    }
+  }
+
   useEffect(() => {
     void loadAll();
     void loadModelConfig();
     void loadAccountProfile();
+    void loadSkills();
   }, []);
 
   async function loadModelConfig() {
@@ -850,6 +973,39 @@ export function Workbench() {
     }
   }
 
+  async function runExpertSkill() {
+    const skill = expertSkills.find((s) => s.id === currentSkillId);
+    if (!skill || !skillInput.trim()) return;
+
+    setIsSkillLoading(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/workflows", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "expert_skill",
+          userInput: `专家指令：${skill.prompt}\n\n用户输入：${skillInput}`
+        })
+      });
+
+      const data = (await response.json()) as { output?: string; error?: string };
+      if (!response.ok || !data.output) throw new Error(data.error ?? "专家诊断失败。");
+
+      setSkillSession({
+        skillId: currentSkillId,
+        input: skillInput,
+        output: data.output,
+        timestamp: new Date().toISOString()
+      });
+      setMessage(`[${skill.name}] 已完成诊断。`);
+    } catch (skillError) {
+      setError(skillError instanceof Error ? skillError.message : "专家诊断失败。");
+    } finally {
+      setIsSkillLoading(false);
+    }
+  }
+
   const getFilteredAssetTrees = () => {
     let filtered = assets;
 
@@ -891,6 +1047,7 @@ export function Workbench() {
     { id: "generate", label: "AI生成", description: "结构化创作输入", icon: Sparkles },
     { id: "calendar", label: "内容日历", description: "查看排期与主题", icon: CalendarDays },
     { id: "assets", label: "资产库", description: "复制、预览与二改", icon: FolderOpen },
+    { id: "skills", label: "专家工具箱", description: "专项能力模拟", icon: MessageSquareQuote },
     { id: "settings", label: "模型设置", description: "切换模型供应商", icon: Settings }
   ];
 
@@ -1491,6 +1648,127 @@ export function Workbench() {
                 )}
               </div>
             </div>
+          ) : null}
+
+          {!isBootstrapping && activeTab === "skills" ? (
+            <section className="grid gap-5 lg:grid-cols-[0.8fr_1.2fr]">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <MessageSquareQuote className="h-4 w-4" />
+                      专家库 (Expert Toolkit)
+                    </CardTitle>
+                    <CardDescription>针对小红书运营的专项痛点，模拟不同领域的专家进行诊断。</CardDescription>
+                  </div>
+                  <Button size="sm" variant="outline" onClick={() => setIsImportingSkill(true)}>
+                    导入 Skill
+                  </Button>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {isImportingSkill && (
+                    <div className="mb-4 space-y-3 rounded-lg border bg-muted/50 p-3">
+                      <div className="text-xs font-bold uppercase">导入 JSON 格式</div>
+                      <Textarea 
+                        placeholder='{"name": "新专家", "prompt": "...", "description": "..."}' 
+                        value={importJson}
+                        onChange={(e) => setImportJson(e.target.value)}
+                        className="min-h-24 text-[10px]"
+                      />
+                      <div className="flex gap-2">
+                        <Button size="sm" className="h-7 text-[10px]" onClick={importSkill}>确认导入</Button>
+                        <Button size="sm" variant="ghost" className="h-7 text-[10px]" onClick={() => setIsImportingSkill(false)}>取消</Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {expertSkills.map((skill) => {
+                    const isActive = currentSkillId === skill.id;
+                    return (
+                      <div key={skill.id} className="relative group">
+                        <button
+                          type="button"
+                          onClick={() => setCurrentSkillId(skill.id)}
+                          className={cn(
+                            "flex w-full flex-col gap-1 rounded-xl border p-4 text-left transition-all hover:bg-accent",
+                            isActive && "border-primary bg-primary/5"
+                          )}
+                        >
+                          <div className="font-semibold">{skill.name}</div>
+                          <div className="text-xs text-muted-foreground">{skill.description}</div>
+                        </button>
+                        <button 
+                          className="absolute right-2 top-2 hidden group-hover:block text-destructive opacity-50 hover:opacity-100"
+                          onClick={() => deleteSkill(skill.id)}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </CardContent>
+              </Card>
+
+              <div className="space-y-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-sm font-medium">
+                      {expertSkills.find((s) => s.id === currentSkillId)?.name || "请选择专家"}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                      <label className="text-xs font-medium text-muted-foreground">
+                        {expertSkills.find((s) => s.id === currentSkillId)?.inputLabel || "输入内容"}
+                      </label>
+                      <Textarea
+                        className="min-h-32"
+                        placeholder={expertSkills.find((s) => s.id === currentSkillId)?.placeholder || "请先从左侧选择一个专家..."}
+                        value={skillInput}
+                        onChange={(e) => setSkillInput(e.target.value)}
+                      />
+                    </div>
+                    <Button
+                      className="w-full"
+                      disabled={isSkillLoading || !skillInput.trim() || !currentSkillId}
+                      onClick={runExpertSkill}
+                    >
+                      {isSkillLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                      开始诊断
+                    </Button>
+                  </CardContent>
+                </Card>
+
+                {skillSession ? (
+                  <Card className="border-primary/20 bg-primary/5">
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-sm font-bold text-primary">诊断结果</CardTitle>
+                        <span className="text-[10px] text-muted-foreground">{new Date(skillSession.timestamp).toLocaleTimeString()}</span>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="prose prose-sm prose-primary max-w-none dark:prose-invert">
+                        <div className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+                          {skillSession.output}
+                        </div>
+                      </div>
+                      <div className="mt-4 flex gap-2">
+                        <Button size="sm" variant="outline" className="h-8" onClick={() => copyText(skillSession.output)}>
+                          <Clipboard className="mr-1 h-3.5 w-3.5" />
+                          复制建议
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <EmptyState
+                    title="等待诊断"
+                    description="选择左侧专家并输入你的内容，专家会为你提供专项优化建议。"
+                  />
+                )}
+              </div>
+            </section>
           ) : null}
 
           {!isBootstrapping && activeTab === "settings" ? (

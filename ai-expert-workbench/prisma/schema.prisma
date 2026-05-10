@@ -37,3 +37,15 @@ model CalendarItem {
 
   @@index([day])
 }
+
+model ExpertSkill {
+  id          String   @id @default(cuid())
+  name        String
+  description String
+  icon        String   @default("Sparkles")
+  prompt      String
+  placeholder String   @default("")
+  inputLabel  String   @default("请输入内容")
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+}

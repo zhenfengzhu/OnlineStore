@@ -12,6 +12,23 @@ export type ContentAssetView = {
   createdAt: string;
 };
 
+export type ExpertSkill = {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  prompt: string;
+  placeholder: string;
+  inputLabel: string;
+};
+
+export type ExpertSession = {
+  skillId: string;
+  input: string;
+  output: string;
+  timestamp: string;
+};
+
 export type CalendarItemView = {
   id: string;
   day: number;
