@@ -6,6 +6,7 @@ logs
 .launcher
 .model-config.json
 .account-profile.json
+.content-rules.json
 .env
 .env*.local
 *.tsbuildinfo

@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from "react";
 import {
+  AlertCircle,
   CalendarDays,
+  CheckCircle2,
   Clipboard,
   Download,
   FileText,
@@ -21,9 +23,15 @@ import {
   WandSparkles,
   Zap,
   Check,
+  ExternalLink,
   Image as ImageIcon,
+  Images,
   Layout,
-  X
+  Link,
+  Search,
+  Tag,
+  X,
+  XCircle
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -36,22 +44,27 @@ import {
 } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { MobileSimulator } from "@/components/mobile-simulator";
+import { DEFAULT_XIAOHONGSHU_GRAPHIC_RULES, normalizeXiaohongshuGraphicRules } from "@/lib/content-rule-defaults";
 import { REWRITE_OPTIONS, TITLE_STYLE_OPTIONS, WORKFLOW_TEMPLATES } from "@/lib/public-config";
 import type {
   AccountProfile,
   CalendarItemView,
   ContentAssetView,
+  ContentRulesConfig,
+  ExpertSession,
+  ExpertSkill,
   PrePublishCheckOutput,
   RewriteMode,
   StructuredBrief,
   TitleStyle,
   TitleWorkshopOutput,
   WorkflowOutput,
-  WorkflowType
+  WorkflowType,
+  XiaohongshuExtractionView
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-type TabKey = "generate" | "calendar" | "assets" | "settings";
+type TabKey = "generate" | "xiaohongshu" | "calendar" | "assets" | "skills" | "settings";
 
 type NavItem = {
   id: TabKey;
@@ -80,8 +93,8 @@ type ModelConfigView = {
 const workflowOptions: Array<{ id: WorkflowType; label: string; description: string; icon: typeof Sparkles }> = [
   {
     id: "thirty_notes",
-    label: "3篇笔记",
-    description: "标题、封面文案、正文、标签和拍摄建议",
+    label: "1篇笔记",
+    description: "一次生成一篇完整图文，方便逐条打磨",
     icon: FileText
   },
   {
@@ -145,9 +158,166 @@ function downloadFile(filename: string, content: string, type: string) {
   URL.revokeObjectURL(url);
 }
 
+function shouldProxyImageUrl(value: string) {
+  try {
+    const url = new URL(value);
+    return /(^|\.)xhscdn\.com$|(^|\.)xiaohongshu\.com$/i.test(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function cleanPreviewImageCandidate(value: string) {
+  return value
+    .replace(/\\u002F/g, "/")
+    .replace(/\\\//g, "/")
+    .split(/(?:;|&quot;|&#34;|&amp;quot;|background-|repeat:|position:|size:)/i)[0]
+    .replace(/[)\].,，。;；]+$/g, "")
+    .trim();
+}
+
+function isLikelyPreviewImageUrl(value: string) {
+  if (value.startsWith("data:image/") || value.startsWith("blob:") || value.startsWith("/api/image-proxy")) {
+    return true;
+  }
+
+  try {
+    const url = new URL(value);
+    const hostname = url.hostname.toLowerCase();
+
+    if (/sns-video|sns-avatar/i.test(hostname)) return false;
+    if (url.pathname === "/" || url.pathname.length < 8) return false;
+
+    return (
+      /\.(avif|gif|jpe?g|png|webp)(?:[?#]|$)/i.test(url.pathname + url.search) ||
+      /imageView2|format=(?:jpg|jpeg|png|webp)|sns-webpic|sns-img|notes_pre_post/i.test(url.href)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function getPreviewImageUrl(value: string) {
+  if (!value || value.startsWith("data:image/") || value.startsWith("blob:") || value.startsWith("/api/image-proxy")) {
+    return value;
+  }
+
+  return shouldProxyImageUrl(value) ? `/api/image-proxy?url=${encodeURIComponent(value)}` : value;
+}
+
+function extractPreviewImages(asset: ContentAssetView) {
+  const imageUrls = [asset.coverImage ?? ""];
+  const urlMatches = asset.body.match(/(?:https?:\/\/[^\s<>"']+|data:image\/[a-zA-Z+.-]+;base64,[A-Za-z0-9+/=]+)/g) ?? [];
+
+  for (const rawUrl of urlMatches) {
+    const url = cleanPreviewImageCandidate(rawUrl);
+    if (isLikelyPreviewImageUrl(url)) {
+      imageUrls.push(url);
+    }
+  }
+
+  return Array.from(
+    new Set(
+      imageUrls
+        .map(cleanPreviewImageCandidate)
+        .filter(isLikelyPreviewImageUrl)
+        .map(getPreviewImageUrl)
+    )
+  );
+}
+
+function getExtractionPreviewImages(extraction: XiaohongshuExtractionView) {
+  return Array.from(
+    new Set(
+      extraction.images
+        .map(cleanPreviewImageCandidate)
+        .filter(isLikelyPreviewImageUrl)
+        .map(getPreviewImageUrl)
+    )
+  );
+}
+
+function extractionToMarkdown(extraction: XiaohongshuExtractionView) {
+  const analysis = extraction.analysis;
+  const topics = extraction.topics ?? [];
+  const images = extraction.images ?? [];
+  return [
+    `# ${extraction.title}`,
+    "",
+    extraction.tags ? `标签：${extraction.tags}` : "",
+    topics.length > 0 ? `话题：${topics.map((topic) => `#${topic}`).join(" ")}` : "",
+    extraction.tags ? "" : "",
+    `来源链接：${extraction.sourceUrl}`,
+    extraction.finalUrl !== extraction.sourceUrl ? `解析后链接：${extraction.finalUrl}` : "",
+    "",
+    "## 原文",
+    "",
+    extraction.text || "未提取到正文。",
+    "",
+    "## 图片",
+    "",
+    ...(images.length > 0
+      ? images.map((image, index) => `${index + 1}. ${image}`)
+      : ["未提取到图片。"]),
+    "",
+    analysis ? "## 爆文拆解" : "",
+    analysis ? `摘要：${analysis.summary}` : "",
+    analysis ? `钩子类型：${analysis.hookType}` : "",
+    analysis ? `可迁移公式：${analysis.reusableFormula}` : "",
+    analysis ? "" : "",
+    analysis ? "### 内容结构" : "",
+    ...((analysis?.contentStructure ?? []).map((item, index) =>
+      `${index + 1}. ${item.section}｜${item.purpose}｜可复用动作：${item.reusableMove}`
+    )),
+    analysis ? "" : "",
+    analysis ? "### 仿写 Brief" : "",
+    analysis ? `目标人群：${analysis.rewriteBrief.targetAudience}` : "",
+    analysis ? `内容角度：${analysis.rewriteBrief.contentAngle}` : "",
+    analysis ? `情绪钩子：${analysis.rewriteBrief.emotionHook}` : "",
+    analysis ? `适合产品：${analysis.rewriteBrief.productFit}` : ""
+  ].filter(Boolean).join("\n");
+}
+
+function extractionsToMarkdown(extractions: XiaohongshuExtractionView[]) {
+  return extractions.map(extractionToMarkdown).join("\n\n---\n\n");
+}
+
+function extractionsToCsv(extractions: XiaohongshuExtractionView[]) {
+  return [
+    ["标题", "标签", "话题", "收藏", "图片数", "来源链接", "创建时间", "正文"].map(csvCell).join(","),
+    ...extractions.map((item) =>
+      [
+        item.title,
+        item.tags,
+        (item.topics ?? []).join(" "),
+        item.isFavorite ? "是" : "否",
+        (item.images ?? []).length,
+        item.sourceUrl,
+        formatDate(item.createdAt),
+        item.text
+      ].map(csvCell).join(",")
+    )
+  ].join("\n");
+}
+
 function csvCell(value: string | number | null | undefined) {
   const raw = String(value ?? "");
   return `"${raw.replaceAll('"', '""')}"`;
+}
+
+function normalizeTitleWorkshopForClient(output: TitleWorkshopOutput | null | undefined): TitleWorkshopOutput | null {
+  if (!output) return null;
+
+  const titles = Array.isArray(output.titles)
+    ? output.titles.filter((title) => title && typeof title.text === "string" && title.text.trim())
+    : [];
+
+  return {
+    summary: typeof output.summary === "string" && output.summary.trim()
+      ? output.summary
+      : "标题建议已生成。",
+    titles
+  };
 }
 
 function assetsToMarkdown(assets: ContentAssetView[]) {
@@ -397,7 +567,7 @@ function AssetCard({
   return (
     <div
       className={cn(
-        "group relative flex flex-col rounded-xl border bg-card transition-all hover:shadow-md",
+        "group relative flex min-w-0 flex-col rounded-xl border bg-card transition-all hover:shadow-md",
         isSelected && "border-primary ring-1 ring-primary",
         isChild && "ml-6 mt-2 border-dashed border-muted-foreground/30 bg-muted/5"
       )}
@@ -419,7 +589,7 @@ function AssetCard({
           </button>
         </div>
 
-        <div className="flex-1 space-y-3">
+        <div className="min-w-0 flex-1 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="outline">{asset.type === "note" ? "图文笔记" : "视频脚本"}</Badge>
@@ -444,12 +614,14 @@ function AssetCard({
             <span className="text-[10px] text-muted-foreground">{new Date(asset.createdAt).toLocaleDateString()}</span>
           </div>
 
-          <div>
-            <h4 className="text-sm font-semibold">{asset.title}</h4>
-            <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap rounded-lg bg-muted/40 p-3 text-[13px] text-muted-foreground">
-              {asset.body}
+          <div className="min-w-0">
+            <h4 className="break-words text-sm font-semibold [overflow-wrap:anywhere]">{asset.title}</h4>
+            <pre className="mt-1 max-h-32 max-w-full overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-muted/40 p-3 text-[13px] text-muted-foreground [overflow-wrap:anywhere]">
+              {asset.body || "正文为空，请重新生成这条内容。"}
             </pre>
           </div>
+
+          <AssetMetaPanel asset={asset} />
 
           <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={() => copyText?.(asset.body)}>
@@ -462,12 +634,16 @@ function AssetCard({
                   size="sm" 
                   variant="ghost" 
                   className="h-8 px-2 text-xs" 
-                  onClick={() => setPreviewNote?.({ 
-                    title: asset.title, 
-                    content: asset.body, 
-                    coverText: asset.coverText || asset.title,
-                    coverImage: asset.coverImage 
-                  })}
+                  onClick={() => {
+                    const previewImages = extractPreviewImages(asset);
+                    setPreviewNote?.({
+                      title: asset.title,
+                      content: asset.body,
+                      coverText: asset.coverText || asset.title,
+                      coverImage: asset.coverImage ? getPreviewImageUrl(asset.coverImage) : undefined,
+                      coverImages: previewImages
+                    });
+                  }}
                 >
                   <Smartphone className="mr-1 h-3.5 w-3.5" />
                   预览
@@ -477,11 +653,13 @@ function AssetCard({
                   variant="ghost"
                   className="h-8 px-2 text-xs"
                   onClick={() => {
+                    const previewImages = extractPreviewImages(asset);
                     setPreviewNote?.({ 
                       title: asset.title, 
                       content: asset.body,
                       coverText: asset.coverText || asset.title,
-                      coverImage: asset.coverImage 
+                      coverImage: asset.coverImage ? getPreviewImageUrl(asset.coverImage) : undefined,
+                      coverImages: previewImages
                     });
                     setIsSimulatorPinned?.(true);
                   }}
@@ -581,7 +759,7 @@ function AssetCard({
               <p className="mb-3 text-muted-foreground">{prePublishChecks[asset.id].overallSuggestion}</p>
               
               <div className="space-y-1.5">
-                {prePublishChecks[asset.id].checks.map((check, idx) => (
+                {prePublishChecks[asset.id].checks.map((check: PrePublishCheckOutput["checks"][number], idx: number) => (
                   <div key={idx} className="flex gap-2">
                     {check.status === "good" ? (
                       <CheckCircle2 className="h-3 w-3 shrink-0 text-emerald-500" />
@@ -677,9 +855,90 @@ function EmptyState({
   );
 }
 
+function hasAssetMeta(asset: ContentAssetView) {
+  const meta = asset.meta ?? {};
+  return Boolean(
+    asset.coverText ||
+    meta.visualSuggestion ||
+    meta.shootingSuggestion ||
+    meta.targetAudience ||
+    meta.riskTip ||
+    meta.firstCommentVariants?.length ||
+    meta.interactionScripts?.length
+  );
+}
+
+function AssetMetaPanel({ asset }: { asset: ContentAssetView }) {
+  const meta = asset.meta ?? {};
+  const firstComments = meta.firstCommentVariants ?? [];
+  const scripts = meta.interactionScripts ?? [];
+
+  if (!hasAssetMeta(asset)) return null;
+
+  return (
+    <div className="grid gap-2 rounded-lg border bg-muted/20 p-3 text-xs text-muted-foreground sm:grid-cols-2">
+      {asset.coverText ? (
+        <div className="min-w-0">
+          <div className="font-medium text-foreground">封面文案</div>
+          <p className="mt-1 break-words [overflow-wrap:anywhere]">{asset.coverText}</p>
+        </div>
+      ) : null}
+      {meta.visualSuggestion ? (
+        <div className="min-w-0">
+          <div className="font-medium text-foreground">封面视觉建议</div>
+          <p className="mt-1 break-words [overflow-wrap:anywhere]">{meta.visualSuggestion}</p>
+        </div>
+      ) : null}
+      {meta.shootingSuggestion ? (
+        <div className="min-w-0">
+          <div className="font-medium text-foreground">拍摄建议</div>
+          <p className="mt-1 break-words [overflow-wrap:anywhere]">{meta.shootingSuggestion}</p>
+        </div>
+      ) : null}
+      {firstComments.length > 0 ? (
+        <div className="min-w-0">
+          <div className="font-medium text-foreground">首评策略</div>
+          <div className="mt-1 space-y-1">
+            {firstComments.slice(0, 3).map((comment, index) => (
+              <p key={`${asset.id}-comment-${index}`} className="break-words [overflow-wrap:anywhere]">{comment}</p>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {scripts.length > 0 ? (
+        <div className="min-w-0 sm:col-span-2">
+          <div className="font-medium text-foreground">互动脚本</div>
+          <div className="mt-1 grid gap-1 sm:grid-cols-2">
+            {scripts.slice(0, 4).map((script, index) => (
+              <div key={`${asset.id}-script-${index}`} className="rounded-md bg-background/70 p-2">
+                {script.scenario ? <div className="font-medium text-foreground">{script.scenario}</div> : null}
+                <p className="break-words [overflow-wrap:anywhere]">{script.userQuery}</p>
+                {script.aiReply ? <p className="mt-1 break-words text-muted-foreground/80 [overflow-wrap:anywhere]">{script.aiReply}</p> : null}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {meta.targetAudience ? (
+        <div className="min-w-0">
+          <div className="font-medium text-foreground">适合人群</div>
+          <p className="mt-1 break-words [overflow-wrap:anywhere]">{meta.targetAudience}</p>
+        </div>
+      ) : null}
+      {meta.riskTip ? (
+        <div className="min-w-0">
+          <div className="font-medium text-foreground">风险提醒</div>
+          <p className="mt-1 break-words [overflow-wrap:anywhere]">{meta.riskTip}</p>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function Workbench() {
   const [activeTab, setActiveTab] = useState<TabKey>("generate");
   const [assets, setAssets] = useState<ContentAssetView[]>([]);
+  const [xiaohongshuExtractions, setXiaohongshuExtractions] = useState<XiaohongshuExtractionView[]>([]);
   const [calendarItems, setCalendarItems] = useState<CalendarItemView[]>([]);
   const [workflowType, setWorkflowType] = useState<WorkflowType>("thirty_notes");
   const [brief, setBrief] = useState<StructuredBrief>(defaultBrief);
@@ -698,11 +957,16 @@ export function Workbench() {
     baseURL: ""
   });
   const [accountProfile, setAccountProfile] = useState<AccountProfile>(defaultAccountProfile);
+  const [contentRules, setContentRules] = useState<ContentRulesConfig>({
+    xiaohongshuGraphicRules: DEFAULT_XIAOHONGSHU_GRAPHIC_RULES
+  });
+  const [contentRuleText, setContentRuleText] = useState(DEFAULT_XIAOHONGSHU_GRAPHIC_RULES.join("\n"));
   const [previewNote, setPreviewNote] = useState<{ 
     title: string; 
     content: string;
     coverText?: string;
     coverImage?: string;
+    coverImages?: string[];
   } | null>(null);
   const [rewritingAssetId, setRewritingAssetId] = useState<string | null>(null);
   const [titleWorkshop, setTitleWorkshop] = useState<TitleWorkshopOutput | null>(null);
@@ -728,6 +992,13 @@ export function Workbench() {
   const [importJson, setImportJson] = useState("");
   const [isComparisonOpen, setIsComparisonOpen] = useState(false);
   const [referenceContent, setReferenceContent] = useState("");
+  const [xiaohongshuUrl, setXiaohongshuUrl] = useState("");
+  const [isExtractingXiaohongshu, setIsExtractingXiaohongshu] = useState(false);
+  const [xiaohongshuExtracted, setXiaohongshuExtracted] = useState<XiaohongshuExtractionView | null>(null);
+  const [xiaohongshuSearchTerm, setXiaohongshuSearchTerm] = useState("");
+  const [xiaohongshuTagFilter, setXiaohongshuTagFilter] = useState("all");
+  const [showFavoriteExtractionsOnly, setShowFavoriteExtractionsOnly] = useState(false);
+  const [analyzingExtractionId, setAnalyzingExtractionId] = useState<string | null>(null);
 
   useEffect(() => {
     (window as any).workbenchActions = {
@@ -753,14 +1024,24 @@ export function Workbench() {
     setIsBootstrapping(true);
     setError(null);
     try {
-      const [assetsRes, calendarRes] = await Promise.all([fetch("/api/assets"), fetch("/api/calendar")]);
-      const [assetsData, calendarData] = await Promise.all([assetsRes.json(), calendarRes.json()]);
+      const [assetsRes, calendarRes, xiaohongshuRes] = await Promise.all([
+        fetch("/api/assets"),
+        fetch("/api/calendar"),
+        fetch("/api/xiaohongshu")
+      ]);
+      const [assetsData, calendarData, xiaohongshuData] = await Promise.all([
+        assetsRes.json(),
+        calendarRes.json(),
+        xiaohongshuRes.json()
+      ]);
 
       if (!assetsRes.ok) throw new Error(assetsData.error ?? "内容资产加载失败。");
       if (!calendarRes.ok) throw new Error(calendarData.error ?? "内容日历加载失败。");
+      if (!xiaohongshuRes.ok) throw new Error(xiaohongshuData.error ?? "图文提取记录加载失败。");
 
       setAssets((assetsData.assets ?? []) as ContentAssetView[]);
       setCalendarItems((calendarData.items ?? []) as CalendarItemView[]);
+      setXiaohongshuExtractions((xiaohongshuData.extractions ?? []) as XiaohongshuExtractionView[]);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "数据加载失败。");
     } finally {
@@ -848,6 +1129,7 @@ export function Workbench() {
     void loadAll();
     void loadModelConfig();
     void loadAccountProfile();
+    void loadContentRules();
     void loadSkills();
   }, []);
 
@@ -885,6 +1167,22 @@ export function Workbench() {
     }
   }
 
+  async function loadContentRules() {
+    try {
+      const response = await fetch("/api/content-rules");
+      const data = (await response.json()) as { rules?: ContentRulesConfig; error?: string };
+      if (!response.ok || !data.rules) {
+        throw new Error(data.error ?? "内容规则加载失败。");
+      }
+
+      const rules = normalizeXiaohongshuGraphicRules(data.rules.xiaohongshuGraphicRules);
+      setContentRules({ xiaohongshuGraphicRules: rules });
+      setContentRuleText(rules.join("\n"));
+    } catch (rulesError) {
+      setError(rulesError instanceof Error ? rulesError.message : "内容规则加载失败。");
+    }
+  }
+
   function updateBrief<K extends keyof StructuredBrief>(field: K, value: StructuredBrief[K]) {
     setBrief((current) => ({ ...current, [field]: value }));
   }
@@ -899,6 +1197,10 @@ export function Workbench() {
 
   function updateAccountProfile<K extends keyof AccountProfile>(field: K, value: AccountProfile[K]) {
     setAccountProfile((current) => ({ ...current, [field]: value }));
+  }
+
+  function resetContentRuleText() {
+    setContentRuleText(DEFAULT_XIAOHONGSHU_GRAPHIC_RULES.join("\n"));
   }
 
   function selectProvider(providerId: string) {
@@ -957,9 +1259,145 @@ export function Workbench() {
     }
   }
 
+  async function saveContentRulesSettings() {
+    setError(null);
+    setMessage(null);
+
+    const rules = normalizeXiaohongshuGraphicRules(
+      contentRuleText
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+    );
+
+    try {
+      const response = await fetch("/api/content-rules", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ xiaohongshuGraphicRules: rules })
+      });
+      const data = (await response.json()) as { rules?: ContentRulesConfig; error?: string };
+      if (!response.ok || !data.rules) {
+        throw new Error(data.error ?? "内容规则保存失败。");
+      }
+
+      const savedRules = normalizeXiaohongshuGraphicRules(data.rules.xiaohongshuGraphicRules);
+      setContentRules({ xiaohongshuGraphicRules: savedRules });
+      setContentRuleText(savedRules.join("\n"));
+      setMessage("小红书图文规则已保存，后续生成、标题和体检会按新规则执行。");
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "内容规则保存失败。");
+    }
+  }
+
   async function copyText(text: string) {
     await navigator.clipboard.writeText(text);
     setMessage("已复制到剪贴板。");
+  }
+
+  async function extractXiaohongshuLink() {
+    const url = xiaohongshuUrl.trim();
+    if (!url) {
+      setError("请先粘贴小红书链接。");
+      return;
+    }
+
+    setIsExtractingXiaohongshu(true);
+    setError(null);
+    setMessage(null);
+
+    try {
+      const response = await fetch("/api/xiaohongshu", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url })
+      });
+      const data = (await response.json()) as {
+        extraction?: XiaohongshuExtractionView;
+        error?: string;
+      };
+
+      if (!response.ok || !data.extraction) {
+        throw new Error(data.error ?? "小红书链接提取失败。");
+      }
+
+      setXiaohongshuExtractions((current) => [data.extraction as XiaohongshuExtractionView, ...current]);
+      setReferenceContent(data.extraction.text);
+      setXiaohongshuExtracted(data.extraction);
+      setMessage(`已提取并独立存储：${(data.extraction.images ?? []).length} 张图片，正文 ${data.extraction.text.length} 字。`);
+      setActiveTab("xiaohongshu");
+    } catch (extractError) {
+      setError(extractError instanceof Error ? extractError.message : "小红书链接提取失败。");
+    } finally {
+      setIsExtractingXiaohongshu(false);
+    }
+  }
+
+  async function deleteXiaohongshuExtraction(id: string) {
+    if (!confirm("确认删除这条提取记录？该操作不会影响资产库。")) return;
+
+    try {
+      const response = await fetch(`/api/xiaohongshu?id=${id}`, { method: "DELETE" });
+      const data = (await response.json()) as { success?: boolean; error?: string };
+      if (!response.ok) throw new Error(data.error ?? "删除失败。");
+
+      setXiaohongshuExtractions((current) => current.filter((item) => item.id !== id));
+      setMessage("提取记录已删除。");
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "删除失败。");
+    }
+  }
+
+  async function updateXiaohongshuExtraction(
+    id: string,
+    patch: Partial<Pick<XiaohongshuExtractionView, "tags" | "isFavorite">>
+  ) {
+    try {
+      const response = await fetch("/api/xiaohongshu", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, ...patch })
+      });
+      const data = (await response.json()) as { extraction?: XiaohongshuExtractionView; error?: string };
+      if (!response.ok || !data.extraction) throw new Error(data.error ?? "更新失败。");
+
+      setXiaohongshuExtractions((current) =>
+        current.map((item) => (item.id === data.extraction?.id ? data.extraction : item))
+      );
+      if (xiaohongshuExtracted?.id === data.extraction.id) {
+        setXiaohongshuExtracted(data.extraction);
+      }
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : "更新失败。");
+    }
+  }
+
+  async function analyzeXiaohongshuExtraction(id: string) {
+    setAnalyzingExtractionId(id);
+    setError(null);
+    setMessage(null);
+
+    try {
+      const response = await fetch("/api/xiaohongshu/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ extractionId: id })
+      });
+      const data = (await response.json()) as { extraction?: XiaohongshuExtractionView; error?: string };
+      if (!response.ok || !data.extraction) throw new Error(data.error ?? "爆文拆解失败。");
+
+      setXiaohongshuExtractions((current) =>
+        current.map((item) => (item.id === data.extraction?.id ? data.extraction : item))
+      );
+      if (xiaohongshuExtracted?.id === data.extraction.id) {
+        setXiaohongshuExtracted(data.extraction);
+      }
+      setMessage("爆文结构拆解已完成。");
+    } catch (analysisError) {
+      setError(analysisError instanceof Error ? analysisError.message : "爆文拆解失败。");
+    } finally {
+      setAnalyzingExtractionId(null);
+    }
   }
 
   async function runWorkflow() {
@@ -1031,7 +1469,12 @@ export function Workbench() {
         throw new Error(data.error ?? "标题生成失败。");
       }
 
-      setTitleWorkshop(data.output);
+      const normalizedOutput = normalizeTitleWorkshopForClient(data.output);
+      if (!normalizedOutput || normalizedOutput.titles.length === 0) {
+        throw new Error("模型没有返回可用的标题建议，请重试。");
+      }
+
+      setTitleWorkshop(normalizedOutput);
       setMessage("标题工坊已生成一组可直接测试的新标题。");
     } catch (titleError) {
       setError(titleError instanceof Error ? titleError.message : "标题生成失败。");
@@ -1141,9 +1584,7 @@ export function Workbench() {
   }
 
   async function generateAssetCover(asset: ContentAssetView) {
-    // Extract visual suggestion from body
-    const visualMatch = asset.body.match(/📸 封面视觉建议：(.*?)$/m);
-    const suggestion = visualMatch?.[1] || asset.title;
+    const suggestion = asset.meta?.visualSuggestion || asset.coverText || asset.title;
 
     setError(null);
     setIsGeneratingImageId(asset.id);
@@ -1220,7 +1661,7 @@ export function Workbench() {
 
       setAssets((current) => current.map((item) => (item.id === asset.id ? data.asset! : item)));
     } catch (favError) {
-      setError(favError instanceof Error ? favError.favError : "更新失败。");
+      setError(favError instanceof Error ? favError.message : "更新失败。");
     }
   }
 
@@ -1371,9 +1812,35 @@ export function Workbench() {
   };
 
   const assetTrees = getFilteredAssetTrees();
+  const xiaohongshuTagOptions = Array.from(
+    new Set(
+      xiaohongshuExtractions.flatMap((item) =>
+        (item.tags ?? "")
+          .split(/[\s,，#]+/)
+          .map((tag) => tag.trim())
+          .filter(Boolean)
+      )
+    )
+  );
+  const filteredXiaohongshuExtractions = xiaohongshuExtractions.filter((item) => {
+    const keyword = xiaohongshuSearchTerm.trim().toLowerCase();
+    const haystack = [item.title, item.text, item.tags ?? "", (item.topics ?? []).join(" "), item.sourceUrl].join("\n").toLowerCase();
+    const matchesKeyword = !keyword || haystack.includes(keyword);
+    const tags = (item.tags ?? "").split(/[\s,，#]+/).map((tag) => tag.trim()).filter(Boolean);
+    const matchesTag = xiaohongshuTagFilter === "all" || tags.includes(xiaohongshuTagFilter);
+    const matchesFavorite = !showFavoriteExtractionsOnly || item.isFavorite;
+    return matchesKeyword && matchesTag && matchesFavorite;
+  });
+  const normalizedTitleWorkshop = normalizeTitleWorkshopForClient(titleWorkshop);
+  const titleWorkshopTitles = normalizedTitleWorkshop?.titles ?? [];
+  const lastOutputNotes = lastOutput?.notes ?? [];
+  const lastOutputCalendar = lastOutput?.calendar ?? [];
+  const lastOutputScripts = lastOutput?.scripts ?? [];
+  const lastOutputNextActions = lastOutput?.nextActions ?? [];
 
   const tabs: NavItem[] = [
     { id: "generate", label: "AI生成", description: "结构化创作输入", icon: Sparkles },
+    { id: "xiaohongshu", label: "图文提取", description: "小红书链接解析", icon: Link },
     { id: "calendar", label: "内容日历", description: "查看排期与主题", icon: CalendarDays },
     { id: "assets", label: "资产库", description: "复制、预览与二改", icon: FolderOpen },
     { id: "skills", label: "专家工具箱", description: "专项能力模拟", icon: MessageSquareQuote },
@@ -1444,9 +1911,9 @@ export function Workbench() {
 
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <Stat label="内容资产" value={assets.length} />
+                <Stat label="提取素材" value={xiaohongshuExtractions.length} />
                 <Stat label="日历条目" value={calendarItems.length} />
                 <Stat label="笔记" value={assets.filter((asset) => asset.type === "note").length} />
-                <Stat label="改写版" value={assets.filter((asset) => Boolean(asset.parentId)).length} />
               </div>
             </div>
           </header>
@@ -1513,6 +1980,21 @@ export function Workbench() {
                         {template.title}
                       </Button>
                     ))}
+                  </div>
+
+                  <div className="rounded-xl border bg-card p-4">
+                    <div className="flex items-center gap-2 text-sm font-medium">
+                      <Layout className="h-4 w-4 text-primary" />
+                      内置小红书图文规则
+                    </div>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      {contentRules.xiaohongshuGraphicRules.map((rule) => (
+                        <div key={rule} className="flex min-w-0 gap-2 text-xs text-muted-foreground">
+                          <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+                          <span className="break-words [overflow-wrap:anywhere]">{rule}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
 
                   <div className="space-y-6">
@@ -1710,33 +2192,40 @@ export function Workbench() {
                     生成标题
                   </Button>
 
-                  {titleWorkshop ? (
+                  {normalizedTitleWorkshop ? (
                     <div className="space-y-4 rounded-xl border p-4">
                       <div>
                         <div className="text-sm font-medium">标题建议</div>
-                        <p className="mt-1 text-sm text-muted-foreground">{titleWorkshop.summary}</p>
+                        <p className="mt-1 text-sm text-muted-foreground">{normalizedTitleWorkshop.summary}</p>
                       </div>
 
-                      <div className="space-y-3">
-                        {titleWorkshop.titles.map((title, index) => (
-                          <div key={`${title.text}-${index}`} className="rounded-lg border bg-muted/30 p-3">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <Badge variant="outline">{TITLE_STYLE_OPTIONS.find((item) => item.id === title.style)?.label ?? title.style}</Badge>
-                              <Badge className="bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 border-amber-500/30">
-                                爆款潜质: {title.scoreHint}
-                              </Badge>
+                      {titleWorkshopTitles.length > 0 ? (
+                        <div className="space-y-3">
+                          {titleWorkshopTitles.map((title, index) => (
+                            <div key={`${title.text}-${index}`} className="rounded-lg border bg-muted/30 p-3">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Badge variant="outline">{TITLE_STYLE_OPTIONS.find((item) => item.id === title.style)?.label ?? title.style}</Badge>
+                                <Badge className="bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 border-amber-500/30">
+                                  爆款潜质: {title.scoreHint || "待评估"}
+                                </Badge>
+                              </div>
+                              <div className="mt-2 text-sm font-medium">{title.text}</div>
+                              {title.intent ? <div className="mt-1 text-xs text-muted-foreground">{title.intent}</div> : null}
+                              <div className="mt-3">
+                                <Button size="sm" variant="outline" onClick={() => copyText(title.text)}>
+                                  <Clipboard className="h-4 w-4" />
+                                  复制标题
+                                </Button>
+                              </div>
                             </div>
-                            <div className="mt-2 text-sm font-medium">{title.text}</div>
-                            <div className="mt-1 text-xs text-muted-foreground">{title.intent}</div>
-                            <div className="mt-3">
-                              <Button size="sm" variant="outline" onClick={() => copyText(title.text)}>
-                                <Clipboard className="h-4 w-4" />
-                                复制标题
-                              </Button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <EmptyState
+                          title="没有可展示的标题"
+                          description="模型返回结果缺少标题列表，请重新生成。"
+                        />
+                      )}
                     </div>
                   ) : null}
 
@@ -1749,10 +2238,10 @@ export function Workbench() {
                     {lastOutput ? (
                       <>
                       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                        <Stat label="笔记" value={lastOutput.notes.length} />
-                        <Stat label="日历" value={lastOutput.calendar.length} />
-                        <Stat label="脚本" value={lastOutput.scripts.length} />
-                        <Stat label="动作" value={lastOutput.nextActions.length} />
+                        <Stat label="笔记" value={lastOutputNotes.length} />
+                        <Stat label="日历" value={lastOutputCalendar.length} />
+                        <Stat label="脚本" value={lastOutputScripts.length} />
+                        <Stat label="动作" value={lastOutputNextActions.length} />
                       </div>
 
                       <div>
@@ -1763,32 +2252,34 @@ export function Workbench() {
                       <div>
                         <h3 className="text-sm font-medium">下一步建议</h3>
                         <div className="mt-2 flex flex-wrap gap-2">
-                          {lastOutput.nextActions.map((item) => (
+                          {lastOutputNextActions.map((item) => (
                             <Badge key={item}>{item}</Badge>
                           ))}
                         </div>
                       </div>
 
-                      {lastOutput.notes[0] ? (
+                      {lastOutputNotes[0] ? (
                         <div className="space-y-4">
                           <div>
                             <h3 className="text-sm font-medium">示例笔记预览</h3>
                             <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-lg bg-muted/60 p-4 text-sm text-muted-foreground">
-                              {lastOutput.notes[0].body}
+                              {lastOutputNotes[0].body}
                             </pre>
                           </div>
                           <div className="grid gap-3 sm:grid-cols-2">
                             <div className="rounded-lg border bg-emerald-500/5 p-3">
                               <div className="text-xs font-medium text-emerald-700">📸 封面视觉建议</div>
-                              <p className="mt-1 text-sm">{lastOutput.notes[0].visualSuggestion}</p>
+                              <p className="mt-1 text-sm">{lastOutputNotes[0].visualSuggestion}</p>
                             </div>
                             <div className="rounded-lg border bg-blue-500/5 p-3">
                               <div className="text-xs font-medium text-blue-700">💬 首评预设</div>
-                              <p className="mt-1 text-sm">{lastOutput.notes[0].firstComment}</p>
+                              <p className="mt-1 text-sm">{lastOutputNotes[0].firstCommentVariants?.[0] ?? "暂无首评建议"}</p>
                             </div>
                             <div className="rounded-lg border bg-purple-500/5 p-3 sm:col-span-2">
                               <div className="text-xs font-medium text-purple-700">🔥 互动触发点</div>
-                              <p className="mt-1 text-sm">{lastOutput.notes[0].engagementTrigger}</p>
+                              <p className="mt-1 text-sm">
+                                {lastOutputNotes[0].interactionScripts?.[0]?.userQuery ?? "暂无互动触发点"}
+                              </p>
                             </div>
                           </div>
                         </div>
@@ -1801,6 +2292,370 @@ export function Workbench() {
                       />
                     )}
                   </div>
+                </CardContent>
+              </Card>
+            </section>
+          ) : null}
+
+          {!isBootstrapping && activeTab === "xiaohongshu" ? (
+            <section className="grid gap-5 lg:grid-cols-[0.86fr_1.14fr]">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Link className="h-4 w-4" />
+                    小红书图文提取
+                  </CardTitle>
+                  <CardDescription>粘贴公开笔记链接，提取正文和图片。结果只保存到这个页签，不进入资产库。</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex flex-col gap-2">
+                    <label className="space-y-1 text-sm">
+                      <span className="font-medium">小红书链接</span>
+                      <div className="flex min-w-0 items-center gap-2 rounded-md border bg-card px-3">
+                        <ExternalLink className="h-4 w-4 shrink-0 text-primary" />
+                        <input
+                          className="h-10 min-w-0 flex-1 bg-transparent text-sm outline-none"
+                          value={xiaohongshuUrl}
+                          onChange={(event) => setXiaohongshuUrl(event.target.value)}
+                          placeholder="https://www.xiaohongshu.com/explore/... 或 xhslink 短链"
+                        />
+                      </div>
+                    </label>
+                    <Button
+                      type="button"
+                      disabled={isExtractingXiaohongshu || !xiaohongshuUrl.trim()}
+                      onClick={extractXiaohongshuLink}
+                    >
+                      {isExtractingXiaohongshu ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Images className="h-4 w-4" />
+                      )}
+                      提取并独立存储
+                    </Button>
+                  </div>
+
+                  {xiaohongshuExtracted ? (
+                    <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant="outline">{(xiaohongshuExtracted.images ?? []).length} 张图片</Badge>
+                        <Badge variant="outline">{(xiaohongshuExtracted.topics ?? []).length} 个话题</Badge>
+                        <Badge variant="secondary">正文 {xiaohongshuExtracted.text.length} 字</Badge>
+                      </div>
+                      <div className="mt-2 font-medium">{xiaohongshuExtracted.title}</div>
+                      {(xiaohongshuExtracted.topics ?? []).length > 0 ? (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {(xiaohongshuExtracted.topics ?? []).map((topic) => (
+                            <Badge key={topic} variant="secondary" className="text-[10px]">#{topic}</Badge>
+                          ))}
+                        </div>
+                      ) : null}
+                      <p className="mt-1 line-clamp-3 text-xs text-muted-foreground">{xiaohongshuExtracted.text}</p>
+                    </div>
+                  ) : (
+                    <EmptyState title="等待提取" description="提取记录会独立保存，不会混入内容资产库。" />
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Images className="h-4 w-4" />
+                      提取记录
+                    </CardTitle>
+                    <CardDescription>这里是独立素材池，适合复制原文、查看图片或作为爆文参考。</CardDescription>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Badge variant="outline">{filteredXiaohongshuExtractions.length}/{xiaohongshuExtractions.length} 条</Badge>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={filteredXiaohongshuExtractions.length === 0}
+                      onClick={() => downloadFile("xiaohongshu-extractions.md", extractionsToMarkdown(filteredXiaohongshuExtractions), "text/markdown")}
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      Markdown
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={filteredXiaohongshuExtractions.length === 0}
+                      onClick={() => downloadFile("xiaohongshu-extractions.csv", extractionsToCsv(filteredXiaohongshuExtractions), "text/csv")}
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      CSV
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid gap-3 lg:grid-cols-[1fr_auto_auto]">
+                    <div className="flex min-w-0 items-center gap-2 rounded-md border bg-card px-3">
+                      <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <input
+                        className="h-9 min-w-0 flex-1 bg-transparent text-sm outline-none"
+                        value={xiaohongshuSearchTerm}
+                        onChange={(event) => setXiaohongshuSearchTerm(event.target.value)}
+                        placeholder="搜索标题、正文、标签或来源链接..."
+                      />
+                    </div>
+                    <select
+                      className="h-9 rounded-md border bg-card px-2 text-xs outline-none"
+                      value={xiaohongshuTagFilter}
+                      onChange={(event) => setXiaohongshuTagFilter(event.target.value)}
+                    >
+                      <option value="all">全部标签</option>
+                      {xiaohongshuTagOptions.map((tag) => (
+                        <option key={tag} value={tag}>{tag}</option>
+                      ))}
+                    </select>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={showFavoriteExtractionsOnly ? "default" : "outline"}
+                      className="h-9"
+                      onClick={() => setShowFavoriteExtractionsOnly((current) => !current)}
+                    >
+                      <Star className={cn("h-3.5 w-3.5", showFavoriteExtractionsOnly && "fill-current")} />
+                      只看收藏
+                    </Button>
+                  </div>
+
+                  {xiaohongshuExtractions.length > 0 ? (
+                    <div className="space-y-3">
+                      {filteredXiaohongshuExtractions.map((item) => {
+                        const previewImages = getExtractionPreviewImages(item);
+                        return (
+                          <div key={item.id} className="rounded-xl border bg-card p-4">
+                            <div className="flex flex-col gap-3 sm:flex-row">
+                              <div className="grid h-24 w-24 shrink-0 grid-cols-2 gap-1 overflow-hidden rounded-lg bg-muted">
+                                {previewImages.slice(0, 4).map((image, index) => (
+                                  <img key={`${item.id}-${index}`} src={image} alt="" className="h-full w-full object-cover" />
+                                ))}
+                                {previewImages.length === 0 ? (
+                                  <div className="col-span-2 flex h-full items-center justify-center text-muted-foreground">
+                                    <ImageIcon className="h-5 w-5" />
+                                  </div>
+                                ) : null}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <Badge variant="outline">{previewImages.length} 图</Badge>
+                                    {item.tags
+                                      ? item.tags.split(/[\s,，#]+/).filter(Boolean).map((tag) => (
+                                          <Badge key={tag} variant="secondary" className="text-[10px]">
+                                            #{tag}
+                                          </Badge>
+                                        ))
+                                      : null}
+                                    {(item.topics ?? []).map((topic) => (
+                                      <Badge key={`${item.id}-topic-${topic}`} variant="outline" className="text-[10px]">
+                                        #{topic}
+                                      </Badge>
+                                    ))}
+                                    <span className="text-[10px] text-muted-foreground">{formatDate(item.createdAt)}</span>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    className={cn("text-muted-foreground transition-colors hover:text-amber-500", item.isFavorite && "text-amber-500")}
+                                    onClick={() => updateXiaohongshuExtraction(item.id, { isFavorite: !item.isFavorite })}
+                                  >
+                                    <Star className={cn("h-4 w-4", item.isFavorite && "fill-current")} />
+                                  </button>
+                                </div>
+                                <h3 className="mt-2 break-words text-sm font-semibold [overflow-wrap:anywhere]">{item.title}</h3>
+                                <p className="mt-1 line-clamp-3 break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">
+                                  {item.text || "未提取到正文。"}
+                                </p>
+                                <label className="mt-3 flex min-w-0 items-center gap-2 rounded-md border bg-muted/20 px-2">
+                                  <Tag className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                  <input
+                                    className="h-8 min-w-0 flex-1 bg-transparent text-xs outline-none"
+                                    value={item.tags ?? ""}
+                                    onChange={(event) =>
+                                      setXiaohongshuExtractions((current) =>
+                                        current.map((currentItem) =>
+                                          currentItem.id === item.id ? { ...currentItem, tags: event.target.value } : currentItem
+                                        )
+                                      )
+                                    }
+                                    onBlur={(event) =>
+                                      updateXiaohongshuExtraction(item.id, {
+                                        tags: event.target.value.trim() || null
+                                      })
+                                    }
+                                    placeholder="添加标签：避坑 宠物用品 成交型"
+                                  />
+                                </label>
+                              </div>
+                            </div>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <Button size="sm" variant="outline" onClick={() => copyText(extractionToMarkdown(item))}>
+                                <Clipboard className="h-3.5 w-3.5" />
+                                复制图文
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() =>
+                                  setPreviewNote({
+                                    title: item.title,
+                                    content: extractionToMarkdown(item),
+                                    coverText: item.title,
+                                    coverImage: previewImages[0],
+                                    coverImages: previewImages
+                                  })
+                                }
+                              >
+                                <Smartphone className="h-3.5 w-3.5" />
+                                预览
+                              </Button>
+                              <Button size="sm" variant="ghost" onClick={() => setReferenceContent(item.text)}>
+                                <WandSparkles className="h-3.5 w-3.5" />
+                                设为参考
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant={item.analysis ? "secondary" : "ghost"}
+                                disabled={analyzingExtractionId === item.id}
+                                onClick={() => analyzeXiaohongshuExtraction(item.id)}
+                              >
+                                {analyzingExtractionId === item.id ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <Gauge className="h-3.5 w-3.5" />
+                                )}
+                                {item.analysis ? "重新拆解" : "AI拆解"}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="text-destructive hover:bg-destructive/10"
+                                onClick={() => deleteXiaohongshuExtraction(item.id)}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                                删除
+                              </Button>
+                            </div>
+                            {item.analysis ? (
+                              <div className="mt-4 space-y-3 rounded-lg border bg-muted/25 p-3">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <Badge>{item.analysis.hookType}</Badge>
+                                  <Badge variant="outline">爆文公式</Badge>
+                                </div>
+                                {item.analysis.summary ? (
+                                  <div>
+                                    <div className="text-xs font-semibold text-muted-foreground">拆解摘要</div>
+                                    <p className="mt-1 text-sm">{item.analysis.summary}</p>
+                                  </div>
+                                ) : null}
+                                <div className="grid gap-3 sm:grid-cols-2">
+                                  {item.analysis.titleAnalysis ? (
+                                    <div className="rounded-md border bg-card p-3">
+                                      <div className="text-xs font-semibold text-muted-foreground">标题钩子</div>
+                                      <p className="mt-1 text-xs leading-relaxed">{item.analysis.titleAnalysis}</p>
+                                    </div>
+                                  ) : null}
+                                  {item.analysis.openingAnalysis ? (
+                                    <div className="rounded-md border bg-card p-3">
+                                      <div className="text-xs font-semibold text-muted-foreground">开头留人</div>
+                                      <p className="mt-1 text-xs leading-relaxed">{item.analysis.openingAnalysis}</p>
+                                    </div>
+                                  ) : null}
+                                </div>
+                                {(item.analysis.contentStructure ?? []).length > 0 ? (
+                                  <div>
+                                    <div className="text-xs font-semibold text-muted-foreground">内容结构</div>
+                                    <div className="mt-2 space-y-2">
+                                      {(item.analysis.contentStructure ?? []).map((structure, index) => (
+                                        <div key={`${item.id}-structure-${index}`} className="rounded-md border bg-card p-3 text-xs">
+                                          {structure.section ? <div className="font-semibold">{index + 1}. {structure.section}</div> : null}
+                                          {structure.purpose ? <div className="mt-1 text-muted-foreground">作用：{structure.purpose}</div> : null}
+                                          {structure.originalSignal ? <div className="mt-1 text-muted-foreground">原文信号：{structure.originalSignal}</div> : null}
+                                          {structure.reusableMove ? <div className="mt-1">可复用动作：{structure.reusableMove}</div> : null}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                ) : null}
+                                {item.analysis.reusableFormula ? (
+                                  <div className="rounded-md border border-primary/20 bg-primary/5 p-3">
+                                    <div className="text-xs font-semibold text-primary">可迁移公式</div>
+                                    <p className="mt-1 text-sm">{item.analysis.reusableFormula}</p>
+                                  </div>
+                                ) : null}
+                                <div className="grid gap-3 sm:grid-cols-2">
+                                  {(item.analysis.sellingPoints ?? []).length > 0 ? (
+                                    <div className="rounded-md border bg-card p-3">
+                                      <div className="text-xs font-semibold text-muted-foreground">电商转化点</div>
+                                      <div className="mt-2 flex flex-wrap gap-1.5">
+                                        {(item.analysis.sellingPoints ?? []).map((point) => (
+                                          <Badge key={point} variant="secondary" className="text-[10px]">{point}</Badge>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  ) : null}
+                                  {(item.analysis.emotionTriggers ?? []).length > 0 ? (
+                                    <div className="rounded-md border bg-card p-3">
+                                      <div className="text-xs font-semibold text-muted-foreground">情绪触发</div>
+                                      <div className="mt-2 flex flex-wrap gap-1.5">
+                                        {(item.analysis.emotionTriggers ?? []).map((point) => (
+                                          <Badge key={point} variant="secondary" className="text-[10px]">{point}</Badge>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  ) : null}
+                                </div>
+                                {item.analysis.rewriteBrief?.targetAudience ||
+                                item.analysis.rewriteBrief?.contentAngle ||
+                                item.analysis.rewriteBrief?.emotionHook ||
+                                item.analysis.rewriteBrief?.productFit ||
+                                (item.analysis.rewriteBrief?.replaceableVariables ?? []).length > 0 ? (
+                                  <div className="rounded-md border bg-card p-3">
+                                    <div className="text-xs font-semibold text-muted-foreground">仿写 Brief</div>
+                                    <div className="mt-2 grid gap-2 text-xs sm:grid-cols-2">
+                                      {item.analysis.rewriteBrief?.targetAudience ? <div>目标人群：{item.analysis.rewriteBrief.targetAudience}</div> : null}
+                                      {item.analysis.rewriteBrief?.contentAngle ? <div>内容角度：{item.analysis.rewriteBrief.contentAngle}</div> : null}
+                                      {item.analysis.rewriteBrief?.emotionHook ? <div>情绪钩子：{item.analysis.rewriteBrief.emotionHook}</div> : null}
+                                      {item.analysis.rewriteBrief?.productFit ? <div>适合产品：{item.analysis.rewriteBrief.productFit}</div> : null}
+                                    </div>
+                                    {(item.analysis.rewriteBrief?.replaceableVariables ?? []).length > 0 ? (
+                                      <div className="mt-2 flex flex-wrap gap-1.5">
+                                        {(item.analysis.rewriteBrief?.replaceableVariables ?? []).map((variable) => (
+                                          <Badge key={variable} variant="outline" className="text-[10px]">{variable}</Badge>
+                                        ))}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                ) : null}
+                                {(item.analysis.riskNotes ?? []).length > 0 ? (
+                                  <div className="rounded-md border border-orange-500/20 bg-orange-500/5 p-3">
+                                    <div className="text-xs font-semibold text-orange-700">风险提醒</div>
+                                    <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-orange-900">
+                                      {(item.analysis.riskNotes ?? []).map((risk) => (
+                                        <li key={risk}>{risk}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                ) : null}
+                              </div>
+                            ) : (
+                              <div className="mt-4 rounded-lg border border-dashed bg-muted/20 p-3 text-xs text-muted-foreground">
+                                尚未生成有效拆解。点击“AI拆解”后，会在这里显示标题钩子、内容结构、转化点和仿写 Brief。
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                      {filteredXiaohongshuExtractions.length === 0 ? (
+                        <EmptyState title="没有匹配的提取记录" description="换个关键词、标签，或者关闭只看收藏。" />
+                      ) : null}
+                    </div>
+                  ) : (
+                    <EmptyState title="暂无提取记录" description="粘贴小红书公开链接后，图文会保存在这里。" />
+                  )}
                 </CardContent>
               </Card>
             </section>
@@ -2216,6 +3071,37 @@ export function Workbench() {
                 </CardContent>
               </Card>
 
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Layout className="h-4 w-4" />
+                    小红书图文规则
+                  </CardTitle>
+                  <CardDescription>每行一条规则。保存后，AI 生成、标题工坊和发布前体检都会按这里的规则执行。</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <label className="space-y-1 text-sm">
+                    <span className="font-medium">规则列表</span>
+                    <Textarea
+                      className="min-h-56"
+                      value={contentRuleText}
+                      onChange={(event) => setContentRuleText(event.target.value)}
+                      placeholder="每行输入一条图文规则"
+                    />
+                  </label>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button onClick={saveContentRulesSettings}>
+                      <Settings className="h-4 w-4" />
+                      保存图文规则
+                    </Button>
+                    <Button type="button" variant="outline" onClick={resetContentRuleText}>
+                      恢复默认规则
+                    </Button>
+                    <Badge variant="outline">{contentRules.xiaohongshuGraphicRules.length} 条生效中</Badge>
+                  </div>
+                </CardContent>
+              </Card>
+
               <div className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
               <Card>
                 <CardHeader>
@@ -2323,7 +3209,8 @@ export function Workbench() {
         title={previewNote?.title ?? ""}
         content={previewNote?.content ?? ""}
         coverText={previewNote?.coverText}
-        coverImage={previewNote?.coverImage ?? undefined}
+        coverImage={previewNote?.coverImage}
+        coverImages={previewNote?.coverImages}
       />
 
       {isSimulatorPinned && previewNote && (
@@ -2347,6 +3234,7 @@ export function Workbench() {
                   content={previewNote.content}
                   coverText={previewNote.coverText}
                   coverImage={previewNote.coverImage}
+                  coverImages={previewNote.coverImages}
                   isSticky={true}
                 />
             </div>
@@ -2380,7 +3268,8 @@ export function Workbench() {
                         title={asset.title}
                         content={asset.body}
                         coverText={asset.coverText || asset.title}
-                        coverImage={asset.coverImage || undefined}
+                        coverImage={asset.coverImage ? getPreviewImageUrl(asset.coverImage) : undefined}
+                        coverImages={extractPreviewImages(asset)}
                         isSticky={true}
                       />
                     </div>

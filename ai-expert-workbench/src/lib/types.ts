@@ -1,3 +1,12 @@
+export type ContentAssetMeta = {
+  visualSuggestion?: string;
+  shootingSuggestion?: string;
+  firstCommentVariants?: string[];
+  interactionScripts?: InteractionScript[];
+  targetAudience?: string;
+  riskTip?: string;
+};
+
 export type ContentAssetView = {
   id: string;
   type: string;
@@ -11,7 +20,53 @@ export type ContentAssetView = {
   isFavorite: boolean;
   coverImage: string | null;
   coverText: string | null;
+  meta: ContentAssetMeta;
   createdAt: string;
+};
+
+export type XiaohongshuExtractionView = {
+  id: string;
+  title: string;
+  text: string;
+  topics: string[];
+  images: string[];
+  analysis: XiaohongshuAnalysisOutput | null;
+  tags: string | null;
+  isFavorite: boolean;
+  sourceUrl: string;
+  finalUrl: string;
+  createdAt: string;
+};
+
+export type XiaohongshuStructureItem = {
+  section: string;
+  purpose: string;
+  originalSignal: string;
+  reusableMove: string;
+};
+
+export type XiaohongshuRewriteBrief = {
+  targetAudience: string;
+  contentAngle: string;
+  emotionHook: string;
+  productFit: string;
+  replaceableVariables: string[];
+  forbiddenRisks: string[];
+};
+
+export type XiaohongshuAnalysisOutput = {
+  summary: string;
+  hookType: string;
+  titleAnalysis: string;
+  openingAnalysis: string;
+  contentStructure: XiaohongshuStructureItem[];
+  sellingPoints: string[];
+  emotionTriggers: string[];
+  interactionHooks: string[];
+  visualNotes: string[];
+  riskNotes: string[];
+  reusableFormula: string;
+  rewriteBrief: XiaohongshuRewriteBrief;
 };
 
 export type ExpertSkill = {
@@ -150,4 +205,8 @@ export type AccountProfile = {
   preferredPhrases: string;
   forbiddenPhrases: string;
   brandBoundaries: string;
+};
+
+export type ContentRulesConfig = {
+  xiaohongshuGraphicRules: string[];
 };

@@ -20,6 +20,7 @@ model ContentAsset {
   isFavorite  Boolean  @default(false)
   coverImage  String?
   coverText   String?
+  contentMetaJson String?
   createdAt   DateTime @default(now())
 
   @@index([type])
@@ -38,6 +39,24 @@ model CalendarItem {
   createdAt  DateTime @default(now())
 
   @@index([day])
+}
+
+model XiaohongshuExtraction {
+  id         String   @id @default(cuid())
+  title      String
+  text       String
+  topicsJson String?
+  imagesJson String
+  analysisJson String?
+  tags       String?
+  isFavorite Boolean  @default(false)
+  sourceUrl  String
+  finalUrl   String
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([isFavorite])
+  @@index([sourceUrl])
 }
 
 model ExpertSkill {

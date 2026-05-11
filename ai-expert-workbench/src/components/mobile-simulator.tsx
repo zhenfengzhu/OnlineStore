@@ -1,5 +1,5 @@
-import { X, Heart, Star, MessageCircle, ChevronLeft, MoreHorizontal, Image as ImageIcon, Type, Layout } from "lucide-react";
-import { useEffect, useState } from "react";
+import { X, Heart, Star, MessageCircle, ChevronLeft, ChevronRight, MoreHorizontal, Image as ImageIcon, Layout } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -9,6 +9,7 @@ interface MobileSimulatorProps {
   title: string;
   content: string;
   coverImage?: string;
+  coverImages?: string[];
   coverText?: string;
   authorName?: string;
   isSticky?: boolean;
@@ -20,11 +21,14 @@ export function MobileSimulator({
   title,
   content,
   coverImage,
+  coverImages,
   coverText,
   authorName = "品牌官方账号",
   isSticky = false
 }: MobileSimulatorProps) {
+  const carouselRef = useRef<HTMLDivElement>(null);
   const [viewMode, setViewMode] = useState<"cover" | "detail">("detail");
+  const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [textStyle, setTextStyle] = useState({
     fontSize: 24,
     color: "#ffffff",
@@ -43,18 +47,98 @@ export function MobileSimulator({
     };
   }, [isOpen, isSticky]);
 
+  const images = coverImages?.length ? coverImages : coverImage ? [coverImage] : [];
+  const activeImage = images[activeImageIndex] ?? images[0];
+  const hasMultipleImages = images.length > 1;
+
+  useEffect(() => {
+    setActiveImageIndex(0);
+  }, [coverImage, coverImages]);
+
+  useEffect(() => {
+    const carousel = carouselRef.current;
+    if (!carousel || viewMode !== "detail") return;
+
+    carousel.scrollTo({
+      left: carousel.clientWidth * activeImageIndex,
+      behavior: "smooth"
+    });
+  }, [activeImageIndex, viewMode]);
+
   if (!isOpen && !isSticky) return null;
+
+  function changeImage(delta: number) {
+    if (!hasMultipleImages) return;
+    setActiveImageIndex((current) => (current + delta + images.length) % images.length);
+  }
 
   const renderContent = () => {
     if (viewMode === "detail") {
       return (
         <>
           {/* 封面图 / 详情页顶部 */}
-          <div className="relative w-full pb-[133%] bg-zinc-100">
-            {coverImage ? (
-              <img src={coverImage} alt="封面" className="absolute inset-0 h-full w-full object-cover" />
+          <div className="relative w-full bg-zinc-100">
+            {images.length > 0 ? (
+              <>
+                <div
+                  ref={carouselRef}
+                  className="flex aspect-[3/4] snap-x snap-mandatory overflow-x-auto scroll-smooth"
+                  style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+                  onScroll={(event) => {
+                    const target = event.currentTarget;
+                    const nextIndex = Math.round(target.scrollLeft / Math.max(target.clientWidth, 1));
+                    if (nextIndex !== activeImageIndex) {
+                      setActiveImageIndex(Math.min(Math.max(nextIndex, 0), images.length - 1));
+                    }
+                  }}
+                >
+                  {images.map((image, index) => (
+                    <div key={`${image}-${index}`} className="relative h-full w-full shrink-0 snap-center">
+                      <img src={image} alt={`笔记图片 ${index + 1}`} className="h-full w-full object-cover" />
+                    </div>
+                  ))}
+                </div>
+
+                {hasMultipleImages ? (
+                  <>
+                    <button
+                      type="button"
+                      aria-label="上一张图片"
+                      className="absolute left-3 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-black/35 text-white shadow-sm backdrop-blur transition-colors hover:bg-black/50"
+                      onClick={() => changeImage(-1)}
+                    >
+                      <ChevronLeft className="h-5 w-5" />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="下一张图片"
+                      className="absolute right-3 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-black/35 text-white shadow-sm backdrop-blur transition-colors hover:bg-black/50"
+                      onClick={() => changeImage(1)}
+                    >
+                      <ChevronRight className="h-5 w-5" />
+                    </button>
+                    <div className="absolute right-3 top-3 rounded-full bg-black/45 px-2 py-1 text-[11px] font-medium text-white backdrop-blur">
+                      {activeImageIndex + 1}/{images.length}
+                    </div>
+                    <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-1.5">
+                      {images.map((image, index) => (
+                        <button
+                          key={`${image}-dot-${index}`}
+                          type="button"
+                          aria-label={`查看第 ${index + 1} 张图片`}
+                          className={cn(
+                            "h-1.5 rounded-full bg-white/70 transition-all",
+                            index === activeImageIndex ? "w-5" : "w-1.5 opacity-70"
+                          )}
+                          onClick={() => setActiveImageIndex(index)}
+                        />
+                      ))}
+                    </div>
+                  </>
+                ) : null}
+              </>
             ) : (
-              <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-300">
+              <div className="flex aspect-[3/4] flex-col items-center justify-center text-zinc-300">
                 <ImageIcon className="h-10 w-10 mb-2" />
                 <span className="text-[10px]">3:4 图片展示位</span>
               </div>
@@ -63,8 +147,8 @@ export function MobileSimulator({
 
           {/* 正文区域 */}
           <div className="relative px-4 pb-24 pt-4">
-            <h1 className="mb-3 text-[18px] font-bold leading-[1.4] text-zinc-900">{title}</h1>
-            <div className="text-[15px] leading-[1.6] text-zinc-800 whitespace-pre-wrap font-[system-ui]">
+            <h1 className="mb-3 break-words text-[18px] font-bold leading-[1.4] text-zinc-900 [overflow-wrap:anywhere]">{title}</h1>
+            <div className="whitespace-pre-wrap break-words font-[system-ui] text-[15px] leading-[1.6] text-zinc-800 [overflow-wrap:anywhere]">
               {content}
             </div>
             <div className="mt-4 text-[12px] text-zinc-400">编辑于 刚刚</div>
@@ -75,11 +159,35 @@ export function MobileSimulator({
 
     return (
       <div className="relative h-full w-full bg-zinc-900 flex items-center justify-center overflow-hidden">
-        {coverImage ? (
-          <img src={coverImage} alt="cover" className="absolute inset-0 w-full h-full object-cover opacity-90" />
+        {activeImage ? (
+          <img src={activeImage} alt="cover" className="absolute inset-0 w-full h-full object-cover opacity-90" />
         ) : (
           <div className="absolute inset-0 bg-gradient-to-tr from-zinc-800 via-zinc-900 to-black" />
         )}
+
+        {hasMultipleImages ? (
+          <>
+            <button
+              type="button"
+              aria-label="上一张封面图片"
+              className="absolute left-4 top-1/2 z-20 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-black/35 text-white backdrop-blur transition-colors hover:bg-black/55"
+              onClick={() => changeImage(-1)}
+            >
+              <ChevronLeft className="h-5 w-5" />
+            </button>
+            <button
+              type="button"
+              aria-label="下一张封面图片"
+              className="absolute right-4 top-1/2 z-20 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-black/35 text-white backdrop-blur transition-colors hover:bg-black/55"
+              onClick={() => changeImage(1)}
+            >
+              <ChevronRight className="h-5 w-5" />
+            </button>
+            <div className="absolute right-4 top-14 z-20 rounded-full bg-black/45 px-2 py-1 text-[11px] font-medium text-white backdrop-blur">
+              {activeImageIndex + 1}/{images.length}
+            </div>
+          </>
+        ) : null}
         
         <div 
           className={cn(

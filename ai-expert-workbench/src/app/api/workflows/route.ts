@@ -8,36 +8,9 @@ export const runtime = "nodejs";
 const workflowTypes: WorkflowType[] = ["thirty_notes", "content_calendar", "video_scripts", "inspiration_rewrite"];
 
 type WorkflowBody = {
-  type?: WorkflowType;
+  type?: WorkflowType | "expert_skill";
   userInput?: string;
 };
-
-function noteToMarkdown(note: WorkflowOutput["notes"][number]) {
-  return [
-    `# ${note.title}`,
-    "",
-    `📸 封面视觉建议：${note.visualSuggestion}`,
-    "",
-    `📝 封面文案：${note.coverText}`,
-    "",
-    note.body,
-    "",
-    `🏷️ 标签：${note.tags.join(" ")}`,
-    "",
-    `🎬 拍摄建议：${note.shootingSuggestion}`,
-    "",
-    `💬 首评策略（Variant 1 - 补充信息）：${note.firstCommentVariants[0] || ""}`,
-    `💬 首评策略（Variant 2 - 互动钩子）：${note.firstCommentVariants[1] || ""}`,
-    `💬 首评策略（Variant 3 - 真实感）：${note.firstCommentVariants[2] || ""}`,
-    "",
-    "🔥 互动问答脚本：",
-    ...note.interactionScripts.map(script => `- [${script.scenario}] 用户：${script.userQuery} -> AI回复：${script.aiReply}`),
-    "",
-    `👥 适合人群：${note.targetAudience}`,
-    "",
-    `⚠️ 风险提醒：${note.riskTip}`
-  ].join("\n");
-}
 
 function scriptToMarkdown(script: WorkflowOutput["scripts"][number]) {
   return [
@@ -65,9 +38,17 @@ async function persistWorkflowOutput(type: WorkflowType, output: WorkflowOutput)
         data: {
           type: "note",
           title: note.title,
-          body: noteToMarkdown(note),
+          body: note.body,
           tags: note.tags.join(" "),
           coverText: note.coverText,
+          contentMetaJson: JSON.stringify({
+            visualSuggestion: note.visualSuggestion,
+            shootingSuggestion: note.shootingSuggestion,
+            firstCommentVariants: note.firstCommentVariants,
+            interactionScripts: note.interactionScripts,
+            targetAudience: note.targetAudience,
+            riskTip: note.riskTip
+          }),
           source: type
         }
       })
@@ -113,7 +94,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: getModelConfigError() }, { status: 400 });
   }
 
-  const body = (await request.json()) as WorkflowBody & { type: string };
+  const body = (await request.json()) as WorkflowBody;
   const type = body.type;
 
   if (type === "expert_skill") {
@@ -132,8 +113,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "请输入创作说明。" }, { status: 400 });
   }
 
-  const output = await runWorkflow({ type: type as WorkflowType, userInput });
-  const persistence = await persistWorkflowOutput(type as WorkflowType, output);
+  try {
+    const output = await runWorkflow({ type: type as WorkflowType, userInput });
+    const persistence = await persistWorkflowOutput(type as WorkflowType, output);
 
-  return NextResponse.json({ output, persistence });
+    return NextResponse.json({ output, persistence });
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "内容生成失败，请重试。" },
+      { status: 502 }
+    );
+  }
 }

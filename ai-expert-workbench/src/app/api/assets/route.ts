@@ -6,6 +6,9 @@ export const runtime = "nodejs";
 
 export async function GET() {
   const assets = await prisma.contentAsset.findMany({
+    where: {
+      source: { not: "xiaohongshu_import" }
+    },
     orderBy: { createdAt: "desc" },
     take: 200
   });

@@ -25,10 +25,17 @@ export async function POST(request: Request) {
     allStyles.includes(style)
   );
 
-  const output = await runTitleWorkshop({
-    userInput,
-    preferredStyles: preferredStyles.length > 0 ? preferredStyles : allStyles
-  });
+  try {
+    const output = await runTitleWorkshop({
+      userInput,
+      preferredStyles: preferredStyles.length > 0 ? preferredStyles : allStyles
+    });
 
-  return NextResponse.json({ output });
+    return NextResponse.json({ output });
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "标题生成失败，请重试。" },
+      { status: 502 }
+    );
+  }
 }
