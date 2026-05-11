@@ -275,6 +275,28 @@ function getPublishPack(asset: ContentAssetView) {
   ].join("\n");
 }
 
+function getAssetReadiness(asset: ContentAssetView, check?: PrePublishCheckOutput) {
+  const meta = asset.meta ?? {};
+  const items = [
+    { key: "body", label: "正文", done: asset.body.trim().length > 0 },
+    { key: "evidence", label: "证据", done: Boolean(meta.evidenceScene && meta.concreteDetail && meta.mildDrawback && meta.fitBoundary && meta.interactionQuestion) },
+    { key: "image", label: "配图", done: extractPreviewImages(asset).length > 0 },
+    { key: "tags", label: "标签", done: getAssetTagList(asset).length > 0 },
+    { key: "check", label: "体检", done: Boolean(check && !check.checks.some((item) => item.status === "fix")) }
+  ];
+  const doneCount = items.filter((item) => item.done).length;
+  const nextMissing = items.find((item) => !item.done);
+
+  return {
+    items,
+    doneCount,
+    total: items.length,
+    isReady: doneCount === items.length,
+    nextKey: nextMissing?.key ?? "publish",
+    nextLabel: nextMissing?.label ?? "发布"
+  };
+}
+
 function extractionToMarkdown(extraction: XiaohongshuExtractionView) {
   const analysis = extraction.analysis;
   const topics = extraction.topics ?? [];
@@ -597,6 +619,7 @@ function AssetCard({
   onPublish?: (asset: ContentAssetView) => void;
   isChild?: boolean;
 }) {
+  const [isMoreOpen, setIsMoreOpen] = useState(false);
   const {
     copyText,
     setPreviewNote,
@@ -611,6 +634,39 @@ function AssetCard({
     isGeneratingImageId,
     prePublishChecks
   } = (window as any).workbenchActions || {};
+  const check = prePublishChecks?.[asset.id] as PrePublishCheckOutput | undefined;
+  const readiness = getAssetReadiness(asset, check);
+
+  function openPreview(pin = false) {
+    const previewImages = extractPreviewImages(asset);
+    setPreviewNote?.({
+      title: asset.title,
+      content: asset.body,
+      coverText: asset.coverText || asset.title,
+      coverImage: asset.coverImage ? getPreviewImageUrl(asset.coverImage) : undefined,
+      coverImages: previewImages
+    });
+    if (pin) {
+      setIsSimulatorPinned?.(true);
+    }
+  }
+
+  function chooseCoverImage() {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.onchange = async (event) => {
+      const file = (event.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (readerEvent) => {
+        const updateAssetCover = (window as any).workbenchActions?.updateAssetCover;
+        updateAssetCover?.(asset.id, readerEvent.target?.result as string);
+      };
+      reader.readAsDataURL(file);
+    };
+    input.click();
+  }
 
   return (
     <div
@@ -671,95 +727,49 @@ function AssetCard({
 
           <AssetMetaPanel asset={asset} />
 
+          {asset.type === "note" ? (
+            <div className="rounded-lg border bg-muted/20 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-xs font-medium">发布就绪度 {readiness.doneCount}/{readiness.total}</div>
+                <Badge variant={readiness.isReady ? "default" : "outline"}>
+                  {readiness.isReady ? "可发布" : `下一步：${readiness.nextLabel}`}
+                </Badge>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {readiness.items.map((item) => (
+                  <Badge key={item.key} variant={item.done ? "secondary" : "outline"} className="text-[10px]">
+                    {item.done ? "✓" : "待"} {item.label}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={() => copyText?.(asset.body)}>
-              <Clipboard className="mr-1 h-3.5 w-3.5" />
-              复制
-            </Button>
             {asset.type === "note" && (
               <>
                 <Button 
                   size="sm" 
-                  variant="ghost" 
+                  variant="outline" 
                   className="h-8 px-2 text-xs" 
-                  onClick={() => {
-                    const previewImages = extractPreviewImages(asset);
-                    setPreviewNote?.({
-                      title: asset.title,
-                      content: asset.body,
-                      coverText: asset.coverText || asset.title,
-                      coverImage: asset.coverImage ? getPreviewImageUrl(asset.coverImage) : undefined,
-                      coverImages: previewImages
-                    });
-                  }}
+                  onClick={() => openPreview()}
                 >
                   <Smartphone className="mr-1 h-3.5 w-3.5" />
                   预览
                 </Button>
                 <Button
                   size="sm"
-                  variant="ghost"
+                  variant={readiness.nextKey === "check" ? "default" : "outline"}
                   className="h-8 px-2 text-xs"
-                  onClick={() => {
-                    const previewImages = extractPreviewImages(asset);
-                    setPreviewNote?.({ 
-                      title: asset.title, 
-                      content: asset.body,
-                      coverText: asset.coverText || asset.title,
-                      coverImage: asset.coverImage ? getPreviewImageUrl(asset.coverImage) : undefined,
-                      coverImages: previewImages
-                    });
-                    setIsSimulatorPinned?.(true);
-                  }}
+                  disabled={checkingAssetId === asset.id}
+                  onClick={() => runPrePublishCheck?.(asset)}
                 >
-                  <Smartphone className="mr-1 h-3.5 w-3.5" />
-                  常驻
+                  <Gauge className="mr-1 h-3.5 w-3.5" />
+                  体检
                 </Button>
                 <Button
                   size="sm"
-                  variant="ghost"
-                  className="h-8 px-2 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                  onClick={() => {
-                    const input = document.createElement("input");
-                    input.type = "file";
-                    input.accept = "image/*";
-                    input.onchange = async (e) => {
-                      const file = (e.target as HTMLInputElement).files?.[0];
-                      if (file) {
-                        const reader = new FileReader();
-                        reader.onload = (re) => {
-                          const updateAssetCover = (window as any).workbenchActions?.updateAssetCover;
-                          updateAssetCover?.(asset.id, re.target?.result as string);
-                        };
-                        reader.readAsDataURL(file);
-                      }
-                    };
-                    input.click();
-                  }}
-                >
-                  <ImageIcon className="mr-1 h-3.5 w-3.5" />
-                  配图
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-8 px-2 text-xs text-purple-600 hover:text-purple-700 hover:bg-purple-50"
-                  disabled={isGeneratingImageId === asset.id}
-                  onClick={() => {
-                    const generateCover = (window as any).workbenchActions?.generateAssetCover;
-                    generateCover?.(asset);
-                  }}
-                >
-                  {isGeneratingImageId === asset.id ? (
-                    <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Sparkles className="mr-1 h-3.5 w-3.5" />
-                  )}
-                  AI 生图
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
+                  variant={readiness.isReady ? "default" : "outline"}
                   className="h-8 px-2 text-xs text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700"
                   onClick={() => onPublish?.(asset)}
                 >
@@ -768,25 +778,65 @@ function AssetCard({
                 </Button>
               </>
             )}
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-8 px-2 text-xs"
-              disabled={checkingAssetId === asset.id}
-              onClick={() => runPrePublishCheck?.(asset)}
-            >
-              <Gauge className="mr-1 h-3.5 w-3.5" />
-              体检
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-8 px-2 text-xs text-destructive hover:bg-destructive/5"
-              onClick={() => deleteItem?.("assets", asset.id)}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
+            {asset.type !== "note" ? (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 px-2 text-xs"
+                disabled={checkingAssetId === asset.id}
+                onClick={() => runPrePublishCheck?.(asset)}
+              >
+                <Gauge className="mr-1 h-3.5 w-3.5" />
+                体检
+              </Button>
+            ) : null}
+            <Button size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={() => setIsMoreOpen((current) => !current)}>
+              <PanelsTopLeft className="mr-1 h-3.5 w-3.5" />
+              更多
             </Button>
           </div>
+
+          {isMoreOpen ? (
+            <div className="flex flex-wrap gap-2 rounded-lg border bg-muted/20 p-2">
+              <Button size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={() => copyText?.(asset.body)}>
+                <Clipboard className="mr-1 h-3.5 w-3.5" />
+                复制正文
+              </Button>
+              {asset.type === "note" ? (
+                <>
+                  <Button size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={() => openPreview(true)}>
+                    <Smartphone className="mr-1 h-3.5 w-3.5" />
+                    常驻预览
+                  </Button>
+                  <Button size="sm" variant="ghost" className="h-8 px-2 text-xs text-blue-600 hover:bg-blue-50 hover:text-blue-700" onClick={chooseCoverImage}>
+                    <ImageIcon className="mr-1 h-3.5 w-3.5" />
+                    上传配图
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 px-2 text-xs text-purple-600 hover:bg-purple-50 hover:text-purple-700"
+                    disabled={isGeneratingImageId === asset.id}
+                    onClick={() => {
+                      const generateCover = (window as any).workbenchActions?.generateAssetCover;
+                      generateCover?.(asset);
+                    }}
+                  >
+                    {isGeneratingImageId === asset.id ? (
+                      <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Sparkles className="mr-1 h-3.5 w-3.5" />
+                    )}
+                    AI 生图
+                  </Button>
+                </>
+              ) : null}
+              <Button size="sm" variant="ghost" className="h-8 px-2 text-xs text-destructive hover:bg-destructive/5" onClick={() => deleteItem?.("assets", asset.id)}>
+                <Trash2 className="mr-1 h-3.5 w-3.5" />
+                删除
+              </Button>
+            </div>
+          ) : null}
 
           {!isChild && (
             <div className="flex flex-wrap gap-2 pt-2">
@@ -1057,11 +1107,13 @@ function PublishCheckRow({
 function XiaohongshuPublishAssistant({
   asset,
   onClose,
-  copyText
+  copyText,
+  check
 }: {
   asset: ContentAssetView;
   onClose: () => void;
   copyText: (text: string) => void | Promise<void>;
+  check?: PrePublishCheckOutput;
 }) {
   const images = extractPreviewImages(asset);
   const tags = getAssetTagList(asset);
@@ -1072,6 +1124,7 @@ function XiaohongshuPublishAssistant({
   const bodyStatus = asset.body.trim() && bodyLength <= 1000 ? "good" : asset.body.trim() ? "watch" : "fix";
   const imageStatus = images.length > 0 && images.length <= 18 ? "good" : images.length > 18 ? "fix" : "fix";
   const tagStatus = tags.length > 0 ? "good" : "watch";
+  const readiness = getAssetReadiness(asset, check);
   const pack = getPublishPack(asset);
 
   return (
@@ -1084,6 +1137,7 @@ function XiaohongshuPublishAssistant({
               <Badge variant={titleStatus === "fix" || bodyStatus === "fix" || imageStatus === "fix" ? "secondary" : "outline"}>
                 {titleStatus === "fix" || bodyStatus === "fix" || imageStatus === "fix" ? "需处理" : "可准备发布"}
               </Badge>
+              <Badge variant={readiness.isReady ? "default" : "outline"}>就绪度 {readiness.doneCount}/{readiness.total}</Badge>
             </div>
             <h2 className="mt-2 break-words text-lg font-semibold [overflow-wrap:anywhere]">{asset.title}</h2>
             <p className="mt-1 text-sm text-muted-foreground">检查发布限制，整理复制包，然后去小红书创作平台手动确认发布。</p>
@@ -1095,6 +1149,26 @@ function XiaohongshuPublishAssistant({
 
         <div className="grid min-h-0 flex-1 gap-0 overflow-y-auto lg:grid-cols-[0.9fr_1.1fr]">
           <div className="space-y-3 border-b p-5 lg:border-b-0 lg:border-r">
+            <div className="rounded-lg border bg-muted/20 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-sm font-medium">发布就绪度</div>
+                <div className="text-xs text-muted-foreground">{readiness.doneCount}/{readiness.total}</div>
+              </div>
+              <div className="mt-2 h-2 overflow-hidden rounded-full bg-muted">
+                <div
+                  className={cn("h-full rounded-full", readiness.isReady ? "bg-emerald-500" : "bg-orange-500")}
+                  style={{ width: `${(readiness.doneCount / readiness.total) * 100}%` }}
+                />
+              </div>
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {readiness.items.map((item) => (
+                  <Badge key={item.key} variant={item.done ? "secondary" : "outline"} className="text-[10px]">
+                    {item.done ? "✓" : "待"} {item.label}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+
             <div className="grid gap-2">
               <PublishCheckRow
                 status={titleStatus}
@@ -1205,6 +1279,7 @@ export function Workbench() {
     coverImages?: string[];
   } | null>(null);
   const [publishAsset, setPublishAsset] = useState<ContentAssetView | null>(null);
+  const [postGenerateAssetIds, setPostGenerateAssetIds] = useState<string[]>([]);
   const [rewritingAssetId, setRewritingAssetId] = useState<string | null>(null);
   const [titleWorkshop, setTitleWorkshop] = useState<TitleWorkshopOutput | null>(null);
   const [preferredTitleStyles, setPreferredTitleStyles] = useState<TitleStyle[]>(
@@ -1214,6 +1289,7 @@ export function Workbench() {
   const [checkingAssetId, setCheckingAssetId] = useState<string | null>(null);
   const [prePublishChecks, setPrePublishChecks] = useState<Record<string, PrePublishCheckOutput>>({});
   const [assetViewMode, setAssetViewMode] = useState<"list" | "grid">("list");
+  const [briefMode, setBriefMode] = useState<"quick" | "pro">("quick");
   const [isSimulatorPinned, setIsSimulatorPinned] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterType, setFilterType] = useState("all");
@@ -1656,7 +1732,7 @@ export function Workbench() {
 
       const data = (await response.json()) as {
         output?: WorkflowOutput;
-        persistence?: { assetCount: number; calendarCount: number };
+        persistence?: { assetCount: number; calendarCount: number; assetIds?: string[]; calendarIds?: string[] };
         error?: string;
       };
 
@@ -1665,6 +1741,7 @@ export function Workbench() {
       }
 
       setLastOutput(data.output);
+      setPostGenerateAssetIds(data.persistence?.assetIds ?? []);
       setMessage(
         `生成完成：新增 ${data.persistence?.assetCount ?? 0} 条内容资产，${data.persistence?.calendarCount ?? 0} 条日历。`
       );
@@ -2074,6 +2151,10 @@ export function Workbench() {
   const lastOutputCalendar = lastOutput?.calendar ?? [];
   const lastOutputScripts = lastOutput?.scripts ?? [];
   const lastOutputNextActions = lastOutput?.nextActions ?? [];
+  const postGenerateAssets = postGenerateAssetIds
+    .map((id) => assets.find((asset) => asset.id === id))
+    .filter((asset): asset is ContentAssetView => Boolean(asset));
+  const primaryPostGenerateAsset = postGenerateAssets.find((asset) => asset.type === "note") ?? postGenerateAssets[0] ?? null;
 
   const tabs: NavItem[] = [
     { id: "generate", label: "AI生成", description: "结构化创作输入", icon: Sparkles },
@@ -2158,6 +2239,46 @@ export function Workbench() {
           {message ? <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm">{message}</div> : null}
           {error ? <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</div> : null}
 
+          {primaryPostGenerateAsset ? (
+            <div className="rounded-xl border border-primary/30 bg-primary/5 p-4">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold">刚生成：{primaryPostGenerateAsset.title}</div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    下一步建议先体检，再补图，最后打开发布助手确认标题、正文、标签和图片。
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="outline" onClick={() => runPrePublishCheck(primaryPostGenerateAsset)}>
+                    <Gauge className="h-4 w-4" />
+                    去体检
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      const generateCover = (window as any).workbenchActions?.generateAssetCover;
+                      generateCover?.(primaryPostGenerateAsset);
+                    }}
+                  >
+                    <ImageIcon className="h-4 w-4" />
+                    补配图
+                  </Button>
+                  <Button size="sm" onClick={() => setPublishAsset(primaryPostGenerateAsset)}>
+                    <ExternalLink className="h-4 w-4" />
+                    发布助手
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setActiveTab("assets")}>
+                    去资产库
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setPostGenerateAssetIds([])}>
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
           {isBootstrapping ? (
             <Card>
               <CardContent className="flex min-h-48 items-center justify-center gap-3">
@@ -2235,6 +2356,31 @@ export function Workbench() {
                   </div>
 
                   <div className="space-y-6">
+                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-muted/20 p-3">
+                      <div>
+                        <div className="text-sm font-medium">Brief 模式</div>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          快速模式先跑出一版，专业模式补充证据、竞品和发布边界。
+                        </p>
+                      </div>
+                      <div className="inline-flex rounded-lg border bg-card p-1">
+                        <button
+                          type="button"
+                          className={cn("rounded-md px-3 py-1.5 text-xs", briefMode === "quick" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent")}
+                          onClick={() => setBriefMode("quick")}
+                        >
+                          快速
+                        </button>
+                        <button
+                          type="button"
+                          className={cn("rounded-md px-3 py-1.5 text-xs", briefMode === "pro" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent")}
+                          onClick={() => setBriefMode("pro")}
+                        >
+                          专业
+                        </button>
+                      </div>
+                    </div>
+
                     <div className="space-y-4 rounded-xl border bg-muted/20 p-4">
                       <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">🎯 核心策略 (Core Strategy)</h3>
                       <div className="grid gap-4 sm:grid-cols-2">
@@ -2260,37 +2406,39 @@ export function Workbench() {
                         </label>
                       </div>
 
-                      <div className="grid gap-4 sm:grid-cols-3">
-                        <label className="space-y-1 text-sm">
-                          <span className="font-medium">产品品类</span>
-                          <input
-                            className="h-10 w-full rounded-md border bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                            value={brief.productCategory}
-                            onChange={(event) => updateBrief("productCategory", event.target.value)}
-                            placeholder="比如：宠物玩具"
-                          />
-                        </label>
+                      {briefMode === "pro" ? (
+                        <div className="grid gap-4 sm:grid-cols-3">
+                          <label className="space-y-1 text-sm">
+                            <span className="font-medium">产品品类 <span className="text-xs font-normal text-muted-foreground">选填</span></span>
+                            <input
+                              className="h-10 w-full rounded-md border bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              value={brief.productCategory}
+                              onChange={(event) => updateBrief("productCategory", event.target.value)}
+                              placeholder="比如：宠物玩具"
+                            />
+                          </label>
 
-                        <label className="space-y-1 text-sm">
-                          <span className="font-medium">价格带</span>
-                          <input
-                            className="h-10 w-full rounded-md border bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                            value={brief.priceRange}
-                            onChange={(event) => updateBrief("priceRange", event.target.value)}
-                            placeholder="比如：百元内 / 中端"
-                          />
-                        </label>
+                          <label className="space-y-1 text-sm">
+                            <span className="font-medium">价格带 <span className="text-xs font-normal text-muted-foreground">选填</span></span>
+                            <input
+                              className="h-10 w-full rounded-md border bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              value={brief.priceRange}
+                              onChange={(event) => updateBrief("priceRange", event.target.value)}
+                              placeholder="比如：百元内 / 中端"
+                            />
+                          </label>
 
-                        <label className="space-y-1 text-sm">
-                          <span className="font-medium">账号阶段</span>
-                          <input
-                            className="h-10 w-full rounded-md border bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                            value={brief.accountStage}
-                            onChange={(event) => updateBrief("accountStage", event.target.value)}
-                            placeholder="比如：种草转化期"
-                          />
-                        </label>
-                      </div>
+                          <label className="space-y-1 text-sm">
+                            <span className="font-medium">账号阶段 <span className="text-xs font-normal text-muted-foreground">选填</span></span>
+                            <input
+                              className="h-10 w-full rounded-md border bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              value={brief.accountStage}
+                              onChange={(event) => updateBrief("accountStage", event.target.value)}
+                              placeholder="比如：种草转化期"
+                            />
+                          </label>
+                        </div>
+                      ) : null}
 
                       <div className="grid gap-4 sm:grid-cols-2">
                         <label className="space-y-1 text-sm">
@@ -2337,6 +2485,7 @@ export function Workbench() {
                       </div>
                     </div>
 
+                    {briefMode === "pro" ? (
                     <div className="space-y-4 rounded-xl border bg-muted/20 p-4">
                       <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">🧾 产品证据 (Product Proof)</h3>
                       <div className="grid gap-4 sm:grid-cols-2">
@@ -2378,6 +2527,7 @@ export function Workbench() {
                         />
                       </label>
                     </div>
+                    ) : null}
 
                     <div className="space-y-4 rounded-xl border bg-muted/20 p-4">
                       <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">✨ 内容感知 (Content Vibe)</h3>
@@ -2410,35 +2560,39 @@ export function Workbench() {
                         </label>
                       </div>
 
-                      <div className="grid gap-4 sm:grid-cols-2">
-                        <label className="space-y-1 text-sm">
-                          <span className="font-medium">语气风格</span>
-                          <Textarea
-                            value={brief.toneStyle}
-                            onChange={(event) => updateBrief("toneStyle", event.target.value)}
-                            placeholder="比如：像有经验的朋友在真实分享"
-                          />
-                        </label>
+                      {briefMode === "pro" ? (
+                        <>
+                          <div className="grid gap-4 sm:grid-cols-2">
+                            <label className="space-y-1 text-sm">
+                              <span className="font-medium">语气风格 <span className="text-xs font-normal text-muted-foreground">选填</span></span>
+                              <Textarea
+                                value={brief.toneStyle}
+                                onChange={(event) => updateBrief("toneStyle", event.target.value)}
+                                placeholder="比如：像有经验的朋友在真实分享"
+                              />
+                            </label>
 
-                        <label className="space-y-1 text-sm">
-                          <span className="font-medium">禁用表达</span>
-                          <Textarea
-                            value={brief.forbiddenWords}
-                            onChange={(event) => updateBrief("forbiddenWords", event.target.value)}
-                            placeholder="比如：绝对安全、闭眼买、保证爆单"
-                          />
-                        </label>
-                      </div>
+                            <label className="space-y-1 text-sm">
+                              <span className="font-medium">禁用表达 <span className="text-xs font-normal text-muted-foreground">选填</span></span>
+                              <Textarea
+                                value={brief.forbiddenWords}
+                                onChange={(event) => updateBrief("forbiddenWords", event.target.value)}
+                                placeholder="比如：绝对安全、闭眼买、保证爆单"
+                              />
+                            </label>
+                          </div>
 
-                      <label className="space-y-1 text-sm">
-                        <span className="font-medium">补充说明</span>
-                        <Textarea
-                          className="min-h-20"
-                          value={brief.additionalNotes}
-                          onChange={(event) => updateBrief("additionalNotes", event.target.value)}
-                          placeholder="把这次特别在意的要求补进来，比如更口语、更多清单感、适合收藏等"
-                        />
-                      </label>
+                          <label className="space-y-1 text-sm">
+                            <span className="font-medium">补充说明 <span className="text-xs font-normal text-muted-foreground">选填</span></span>
+                            <Textarea
+                              className="min-h-20"
+                              value={brief.additionalNotes}
+                              onChange={(event) => updateBrief("additionalNotes", event.target.value)}
+                              placeholder="把这次特别在意的要求补进来，比如更口语、更多清单感、适合收藏等"
+                            />
+                          </label>
+                        </>
+                      ) : null}
                     </div>
 
                     <div className="space-y-4 rounded-xl border border-orange-500/20 bg-orange-500/5 p-4">
@@ -3542,6 +3696,7 @@ export function Workbench() {
           asset={publishAsset}
           onClose={() => setPublishAsset(null)}
           copyText={copyText}
+          check={prePublishChecks[publishAsset.id]}
         />
       ) : null}
 

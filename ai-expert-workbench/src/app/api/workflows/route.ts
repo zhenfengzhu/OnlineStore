@@ -90,7 +90,9 @@ async function persistWorkflowOutput(type: WorkflowType, output: WorkflowOutput)
 
   return {
     assetCount: createdAssets.length,
-    calendarCount: createdCalendarItems.length
+    calendarCount: createdCalendarItems.length,
+    assetIds: createdAssets.map((asset) => asset.id),
+    calendarIds: createdCalendarItems.map((item) => item.id)
   };
 }
 
