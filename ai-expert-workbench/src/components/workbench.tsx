@@ -9,6 +9,7 @@ import {
   FolderOpen,
   Gauge,
   Loader2,
+  MessageSquare,
   MessageSquareQuote,
   PanelsTopLeft,
   Settings,
@@ -17,7 +18,12 @@ import {
   Star,
   Trash2,
   Video,
-  WandSparkles
+  WandSparkles,
+  Zap,
+  Check,
+  Image as ImageIcon,
+  Layout,
+  X
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -89,6 +95,12 @@ const workflowOptions: Array<{ id: WorkflowType; label: string; description: str
     label: "短视频脚本",
     description: "钩子、分镜、口播和结尾引导",
     icon: Video
+  },
+  {
+    id: "inspiration_rewrite",
+    label: "爆款反推",
+    description: "拆解并迁移爆文公式",
+    icon: WandSparkles
   }
 ];
 
@@ -260,8 +272,95 @@ const DEFAULT_SKILLS: ExpertSkill[] = [
     prompt: "你是一位精通社区运营的专家。请为这篇笔记设计 3 个能够引发大量评论的“互动埋点”或者一个让人忍不住想反驳/补充的问题。",
     placeholder: "比如：一篇关于如何科学喂养猫咪的干货...",
     inputLabel: "输入你的笔记内容概要"
+  },
+  {
+    id: "trending_scout",
+    name: "热点/流行狙击手",
+    description: "捕捉当下最火的“热梗”和“话题”，让你的内容自带流量。",
+    icon: "WandSparkles",
+    prompt: "你是一位流行文化观察员。请分析当前小红书上相关的热门趋势、常用梗或爆火的话题角度，并建议如何将这些元素无缝融入到用户的内容中。",
+    placeholder: "比如：最近关于‘脆皮大学生’或者‘精致穷’的话题...",
+    inputLabel: "输入你关注的行业或初步选题"
   }
 ];
+
+function CopyButton({ text, className }: { text: string; className?: string }) {
+  const [copied, setCopied] = useState(false);
+  
+  return (
+    <Button 
+      size="icon" 
+      variant="ghost" 
+      className={cn("h-6 w-6", className)}
+      onClick={() => {
+        navigator.clipboard.writeText(text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }}
+    >
+      {copied ? <Check className="h-3 w-3 text-emerald-500" /> : <Clipboard className="h-3 w-3" />}
+    </Button>
+  );
+}
+
+function StrategySection({ body }: { body: string }) {
+  // Extract first comments
+  const comments = body.match(/💬 首评策略（.*?）：(.*?)$/gm)?.map(m => m.split('）：')[1]) || [];
+  
+  // Extract interaction scripts
+  const scriptsMatch = body.match(/🔥 互动问答脚本：\n([\s\S]*?)(?=\n\n|\n👥|$)/);
+  const scripts = scriptsMatch?.[1].trim().split('\n').filter(s => s.startsWith('- ')).map(s => s.substring(2)) || [];
+
+  if (comments.length === 0 && scripts.length === 0) return null;
+
+  return (
+    <div className="mt-4 space-y-4 border-t pt-4">
+      {comments.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <h5 className="flex items-center text-[11px] font-bold text-blue-600 uppercase">
+              <MessageSquare className="mr-1 h-3 w-3" />
+              首评策略 (Comment Variants)
+            </h5>
+          </div>
+          <div className="grid grid-cols-1 gap-2">
+            {comments.map((c, i) => (
+              <div key={i} className="group relative rounded-md border bg-blue-50/20 p-2 text-[11px] transition-colors hover:bg-blue-50/50">
+                <p className="pr-8 text-muted-foreground">{c}</p>
+                <CopyButton text={c} className="absolute right-1 top-1 opacity-0 group-hover:opacity-100" />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      
+      {scripts.length > 0 && (
+        <div className="space-y-2">
+          <h5 className="flex items-center text-[11px] font-bold text-emerald-600 uppercase">
+            <Zap className="mr-1 h-3 w-3" />
+            互动回复脚本 (Interaction Q&A)
+          </h5>
+          <div className="space-y-1.5">
+            {scripts.map((s, i) => {
+              const parts = s.split('-> AI回复：');
+              const query = parts[0] || "";
+              const reply = parts[1] || "";
+              return (
+                <div key={i} className="rounded-md border border-emerald-100 bg-emerald-50/30 p-2 text-[11px]">
+                  <div className="mb-1 text-muted-foreground opacity-70 italic">{query}</div>
+                  <div className="group relative flex items-start gap-2">
+                    <div className="flex-1 font-medium text-emerald-900">{reply}</div>
+                    <CopyButton text={reply} className="opacity-0 group-hover:opacity-100" />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function AssetCard({
   asset,
@@ -291,6 +390,7 @@ function AssetCard({
     updateAssetStatus,
     checkingAssetId,
     rewritingAssetId,
+    isGeneratingImageId,
     prePublishChecks
   } = (window as any).workbenchActions || {};
 
@@ -358,7 +458,17 @@ function AssetCard({
             </Button>
             {asset.type === "note" && (
               <>
-                <Button size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={() => setPreviewNote?.({ title: asset.title, content: asset.body })}>
+                <Button 
+                  size="sm" 
+                  variant="ghost" 
+                  className="h-8 px-2 text-xs" 
+                  onClick={() => setPreviewNote?.({ 
+                    title: asset.title, 
+                    content: asset.body, 
+                    coverText: asset.coverText || asset.title,
+                    coverImage: asset.coverImage 
+                  })}
+                >
                   <Smartphone className="mr-1 h-3.5 w-3.5" />
                   预览
                 </Button>
@@ -367,12 +477,59 @@ function AssetCard({
                   variant="ghost"
                   className="h-8 px-2 text-xs"
                   onClick={() => {
-                    setPreviewNote?.({ title: asset.title, content: asset.body });
+                    setPreviewNote?.({ 
+                      title: asset.title, 
+                      content: asset.body,
+                      coverText: asset.coverText || asset.title,
+                      coverImage: asset.coverImage 
+                    });
                     setIsSimulatorPinned?.(true);
                   }}
                 >
                   <Smartphone className="mr-1 h-3.5 w-3.5" />
                   常驻
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 px-2 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                  onClick={() => {
+                    const input = document.createElement("input");
+                    input.type = "file";
+                    input.accept = "image/*";
+                    input.onchange = async (e) => {
+                      const file = (e.target as HTMLInputElement).files?.[0];
+                      if (file) {
+                        const reader = new FileReader();
+                        reader.onload = (re) => {
+                          const updateAssetCover = (window as any).workbenchActions?.updateAssetCover;
+                          updateAssetCover?.(asset.id, re.target?.result as string);
+                        };
+                        reader.readAsDataURL(file);
+                      }
+                    };
+                    input.click();
+                  }}
+                >
+                  <ImageIcon className="mr-1 h-3.5 w-3.5" />
+                  配图
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 px-2 text-xs text-purple-600 hover:text-purple-700 hover:bg-purple-50"
+                  disabled={isGeneratingImageId === asset.id}
+                  onClick={() => {
+                    const generateCover = (window as any).workbenchActions?.generateAssetCover;
+                    generateCover?.(asset);
+                  }}
+                >
+                  {isGeneratingImageId === asset.id ? (
+                    <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Sparkles className="mr-1 h-3.5 w-3.5" />
+                  )}
+                  AI 生图
                 </Button>
               </>
             )}
@@ -421,9 +578,54 @@ function AssetCard({
                 <Gauge className="h-3.5 w-3.5" />
                 体检建议
               </div>
-              <p className="text-muted-foreground">{prePublishChecks[asset.id].overallSuggestion}</p>
+              <p className="mb-3 text-muted-foreground">{prePublishChecks[asset.id].overallSuggestion}</p>
+              
+              <div className="space-y-1.5">
+                {prePublishChecks[asset.id].checks.map((check, idx) => (
+                  <div key={idx} className="flex gap-2">
+                    {check.status === "good" ? (
+                      <CheckCircle2 className="h-3 w-3 shrink-0 text-emerald-500" />
+                    ) : check.status === "watch" ? (
+                      <AlertCircle className="h-3 w-3 shrink-0 text-orange-500" />
+                    ) : (
+                      <XCircle className="h-3 w-3 shrink-0 text-destructive" />
+                    )}
+                    <div className="leading-tight">
+                      <span className="font-semibold">{check.name}: </span>
+                      <span className="text-muted-foreground">{check.advice}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              
+              {prePublishChecks[asset.id].optimizedContent && (
+                <div className="mt-3 border-t border-orange-200 pt-3">
+                  <div className="mb-2 text-[10px] font-bold text-orange-600 uppercase">✨ 发现更优合规版本</div>
+                  <div className="rounded border border-orange-200 bg-orange-50 p-2 text-[10px]">
+                    {prePublishChecks[asset.id].optimizedContent?.title && (
+                      <div className="mb-1"><span className="font-bold">新标题：</span>{prePublishChecks[asset.id].optimizedContent?.title}</div>
+                    )}
+                    {prePublishChecks[asset.id].optimizedContent?.body && (
+                      <div className="line-clamp-2 italic opacity-70">{prePublishChecks[asset.id].optimizedContent?.body}</div>
+                    )}
+                  </div>
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    className="mt-2 h-7 w-full border-orange-500/50 text-[10px] text-orange-700 hover:bg-orange-100"
+                    onClick={() => {
+                      const applyFix = (window as any).workbenchActions?.applyPrePublishFix;
+                      applyFix?.(asset.id, prePublishChecks[asset.id].optimizedContent!);
+                    }}
+                  >
+                    <WandSparkles className="mr-1 h-3 w-3" />
+                    一键应用优化文案
+                  </Button>
+                </div>
+              )}
             </div>
           )}
+          <StrategySection body={asset.body} />
         </div>
       </div>
 
@@ -486,6 +688,7 @@ export function Workbench() {
   const [isBootstrapping, setIsBootstrapping] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [isGeneratingImageId, setIsGeneratingImageId] = useState<string | null>(null);
   const [lastOutput, setLastOutput] = useState<WorkflowOutput | null>(null);
   const [modelConfig, setModelConfig] = useState<ModelConfigView | null>(null);
   const [modelForm, setModelForm] = useState({
@@ -495,7 +698,12 @@ export function Workbench() {
     baseURL: ""
   });
   const [accountProfile, setAccountProfile] = useState<AccountProfile>(defaultAccountProfile);
-  const [previewNote, setPreviewNote] = useState<{ title: string; content: string } | null>(null);
+  const [previewNote, setPreviewNote] = useState<{ 
+    title: string; 
+    content: string;
+    coverText?: string;
+    coverImage?: string;
+  } | null>(null);
   const [rewritingAssetId, setRewritingAssetId] = useState<string | null>(null);
   const [titleWorkshop, setTitleWorkshop] = useState<TitleWorkshopOutput | null>(null);
   const [preferredTitleStyles, setPreferredTitleStyles] = useState<TitleStyle[]>(
@@ -518,6 +726,8 @@ export function Workbench() {
   const [isSkillLoading, setIsSkillLoading] = useState(false);
   const [isImportingSkill, setIsImportingSkill] = useState(false);
   const [importJson, setImportJson] = useState("");
+  const [isComparisonOpen, setIsComparisonOpen] = useState(false);
+  const [referenceContent, setReferenceContent] = useState("");
 
   useEffect(() => {
     (window as any).workbenchActions = {
@@ -529,8 +739,12 @@ export function Workbench() {
       rewriteAsset,
       toggleFavorite,
       updateAssetStatus,
+      updateAssetCover,
+      applyPrePublishFix,
+      generateAssetCover,
       checkingAssetId,
       rewritingAssetId,
+      isGeneratingImageId,
       prePublishChecks
     };
   }, [checkingAssetId, rewritingAssetId, prePublishChecks]);
@@ -759,7 +973,9 @@ export function Workbench() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           type: workflowType,
-          userInput: buildPrompt(contentGoal, brief, accountProfile)
+          userInput: referenceContent.trim() 
+            ? `参考爆文：\n${referenceContent}\n\n当前创作需求：\n${buildPrompt(contentGoal, brief, accountProfile)}`
+            : buildPrompt(contentGoal, brief, accountProfile)
         })
       });
 
@@ -883,6 +1099,75 @@ export function Workbench() {
     }
   }
 
+  async function applyPrePublishFix(assetId: string, optimized: { title?: string; body?: string }) {
+    if (!optimized) return;
+    
+    try {
+      const response = await fetch("/api/assets", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: assetId,
+          title: optimized.title,
+          body: optimized.body
+        })
+      });
+
+      if (!response.ok) throw new Error("Failed to apply fix");
+
+      // Update local state
+      setAssets((prev) =>
+        prev.map((a) =>
+          a.id === assetId
+            ? { ...a, title: optimized.title || a.title, body: optimized.body || a.body }
+            : a
+        )
+      );
+      
+      // Clear the check since it's applied
+      setPrePublishChecks(prev => {
+        const next = { ...prev };
+        delete next[assetId];
+        return next;
+      });
+
+      setMessage("已成功应用 AI 优化建议！");
+    } catch (err) {
+      console.error("Fix application error:", err);
+      setError("应用修改失败，请重试。");
+    } finally {
+      setCheckingAssetId(null);
+    }
+  }
+
+  async function generateAssetCover(asset: ContentAssetView) {
+    // Extract visual suggestion from body
+    const visualMatch = asset.body.match(/📸 封面视觉建议：(.*?)$/m);
+    const suggestion = visualMatch?.[1] || asset.title;
+
+    setError(null);
+    setIsGeneratingImageId(asset.id);
+    try {
+      const response = await fetch("/api/images", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: suggestion })
+      });
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Generation failed");
+
+      // Update asset with new cover
+      await updateAssetCover(asset.id, data.url);
+      setMessage("AI 封面生成成功！");
+    } catch (err: any) {
+      console.error("Image generation error:", err);
+      setError(`封面生成失败: ${err.message}`);
+    } finally {
+      setIsGeneratingImageId(null);
+    }
+  }
+
   async function updateCalendarItem(item: CalendarItemView, status: string) {
     setError(null);
     try {
@@ -956,6 +1241,23 @@ export function Workbench() {
     }
   }
 
+  async function updateAssetCover(assetId: string, coverImage: string) {
+    try {
+      const response = await fetch("/api/assets", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: assetId, coverImage })
+      });
+      const data = (await response.json()) as { asset?: ContentAssetView; error?: string };
+      if (!response.ok || !data.asset) throw new Error(data.error ?? "封面更新失败。");
+
+      setAssets((current) => current.map((item) => (item.id === assetId ? data.asset! : item)));
+      setMessage("封面图已更新，点击预览查看效果。");
+    } catch (coverError) {
+      setError(coverError instanceof Error ? coverError.message : "封面更新失败。");
+    }
+  }
+
   async function batchDeleteAssets() {
     if (selectedAssetIds.length === 0) return;
     if (!confirm(`确认批量删除这 ${selectedAssetIds.length} 项资产？该操作不可恢复。`)) return;
@@ -971,6 +1273,33 @@ export function Workbench() {
     } catch (batchError) {
       setError(batchError instanceof Error ? batchError.message : "批量删除失败。");
     }
+  }
+
+  async function batchPrePublishCheck() {
+    if (selectedAssetIds.length === 0) return;
+    const selectedAssets = assets.filter(a => selectedAssetIds.includes(a.id));
+    
+    setMessage(`正在对 ${selectedAssets.length} 项资产进行批量体检...`);
+    for (const asset of selectedAssets) {
+      await runPrePublishCheck(asset);
+    }
+    setMessage("批量体检完成！");
+  }
+
+  async function batchGenerateCovers() {
+    if (selectedAssetIds.length === 0) return;
+    const selectedAssets = assets.filter(a => selectedAssetIds.includes(a.id) && a.type === "note");
+    
+    if (selectedAssets.length === 0) {
+      setError("所选资产中没有图文笔记，无法生成封面。");
+      return;
+    }
+
+    setMessage(`正在为 ${selectedAssets.length} 篇笔记生成 AI 封面...`);
+    for (const asset of selectedAssets) {
+      await generateAssetCover(asset);
+    }
+    setMessage("批量封面生成完成！");
   }
 
   async function runExpertSkill() {
@@ -1306,6 +1635,22 @@ export function Workbench() {
                         />
                       </label>
                     </div>
+
+                    <div className="space-y-4 rounded-xl border border-orange-500/20 bg-orange-500/5 p-4">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-orange-600 flex items-center gap-2">
+                        <WandSparkles className="h-3 w-3" />
+                        参考爆文 (Inspiration)
+                      </h3>
+                      <label className="space-y-1 text-sm">
+                        <span className="font-medium text-orange-700">粘贴参考内容 (可选)</span>
+                        <Textarea
+                          className="min-h-32 border-orange-500/30 focus-visible:ring-orange-500/50 bg-orange-500/5"
+                          value={referenceContent}
+                          onChange={(event) => setReferenceContent(event.target.value)}
+                          placeholder="粘贴你想要模仿的小红书爆款文案。AI 将自动分析其爆款公式并迁移到你的新内容中。"
+                        />
+                      </label>
+                    </div>
                   </div>
 
                   <Button disabled={isLoading || !brief.topic.trim()} onClick={runWorkflow}>
@@ -1615,6 +1960,20 @@ export function Workbench() {
                     </Button>
                   </div>
                   <div className="flex items-center gap-2">
+                    {selectedAssetIds.length === 2 && (
+                      <Button size="sm" variant="default" className="h-8 bg-orange-500 hover:bg-orange-600" onClick={() => setIsComparisonOpen(true)}>
+                        <Layout className="mr-1 h-3 w-3" />
+                        封面 PK
+                      </Button>
+                    )}
+                    <Button size="sm" variant="outline" className="h-8 border-purple-200 text-purple-700 hover:bg-purple-50" onClick={batchGenerateCovers}>
+                      <Sparkles className="mr-1 h-3 w-3" />
+                      批量生图
+                    </Button>
+                    <Button size="sm" variant="outline" className="h-8 border-blue-200 text-blue-700 hover:bg-blue-50" onClick={batchPrePublishCheck}>
+                      <Gauge className="mr-1 h-3 w-3" />
+                      批量体检
+                    </Button>
                     <Button size="sm" variant="outline" className="h-8" onClick={() => downloadFile("batch-export.csv", assetsToCsv(assets.filter(a => selectedAssetIds.includes(a.id))), "text/csv")}>
                       <Download className="h-3 w-3" />
                       导出
@@ -1963,6 +2322,8 @@ export function Workbench() {
         onClose={() => setPreviewNote(null)}
         title={previewNote?.title ?? ""}
         content={previewNote?.content ?? ""}
+        coverText={previewNote?.coverText}
+        coverImage={previewNote?.coverImage ?? undefined}
       />
 
       {isSimulatorPinned && previewNote && (
@@ -1984,8 +2345,60 @@ export function Workbench() {
                   onClose={() => {}}
                   title={previewNote.title}
                   content={previewNote.content}
+                  coverText={previewNote.coverText}
+                  coverImage={previewNote.coverImage}
                   isSticky={true}
                 />
+            </div>
+          </div>
+        </div>
+      )}
+      {isComparisonOpen && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-background/95 backdrop-blur-md p-6">
+          <div className="relative w-full max-w-5xl h-full flex flex-col gap-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-2xl font-bold">封面 PK (A/B Test)</h2>
+                <p className="text-muted-foreground text-sm">对比不同封面的视觉冲击力，辅助发布决策。</p>
+              </div>
+              <Button variant="ghost" size="icon" onClick={() => setIsComparisonOpen(false)}>
+                <X className="h-6 w-6" />
+              </Button>
+            </div>
+
+            <div className="flex-1 grid grid-cols-2 gap-12 items-center justify-center overflow-hidden px-12">
+              {selectedAssetIds.slice(0, 2).map((id, index) => {
+                const asset = assets.find(a => a.id === id);
+                if (!asset) return null;
+                return (
+                  <div key={id} className="flex flex-col items-center gap-4">
+                    <Badge className="bg-primary text-primary-foreground mb-2">方案 {index === 0 ? "A" : "B"}</Badge>
+                    <div className="w-[320px] aspect-[9/19] scale-[0.9] origin-top border-[8px] border-zinc-900 rounded-[2.5rem] overflow-hidden shadow-2xl">
+                      <MobileSimulator
+                        isOpen={true}
+                        onClose={() => {}}
+                        title={asset.title}
+                        content={asset.body}
+                        coverText={asset.coverText || asset.title}
+                        coverImage={asset.coverImage || undefined}
+                        isSticky={true}
+                      />
+                    </div>
+                    <div className="text-center">
+                      <div className="text-sm font-bold">{asset.title}</div>
+                      <div className="text-xs text-muted-foreground mt-1">
+                        {asset.coverImage ? "✅ 已配图" : "❌ 未配图"}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="flex justify-center pb-8">
+              <Button size="lg" className="rounded-full px-12" onClick={() => setIsComparisonOpen(false)}>
+                结束对比
+              </Button>
             </div>
           </div>
         </div>

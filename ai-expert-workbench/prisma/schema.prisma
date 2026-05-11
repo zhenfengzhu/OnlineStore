@@ -18,6 +18,8 @@ model ContentAsset {
   variantType String?
   status      String   @default("draft")
   isFavorite  Boolean  @default(false)
+  coverImage  String?
+  coverText   String?
   createdAt   DateTime @default(now())
 
   @@index([type])

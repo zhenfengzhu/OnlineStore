@@ -5,7 +5,7 @@ import type { WorkflowOutput, WorkflowType } from "@/lib/types";
 
 export const runtime = "nodejs";
 
-const workflowTypes: WorkflowType[] = ["thirty_notes", "content_calendar", "video_scripts"];
+const workflowTypes: WorkflowType[] = ["thirty_notes", "content_calendar", "video_scripts", "inspiration_rewrite"];
 
 type WorkflowBody = {
   type?: WorkflowType;
@@ -26,9 +26,12 @@ function noteToMarkdown(note: WorkflowOutput["notes"][number]) {
     "",
     `🎬 拍摄建议：${note.shootingSuggestion}`,
     "",
-    `💬 首评预设：${note.firstComment}`,
+    `💬 首评策略（Variant 1 - 补充信息）：${note.firstCommentVariants[0] || ""}`,
+    `💬 首评策略（Variant 2 - 互动钩子）：${note.firstCommentVariants[1] || ""}`,
+    `💬 首评策略（Variant 3 - 真实感）：${note.firstCommentVariants[2] || ""}`,
     "",
-    `🔥 互动触发点：${note.engagementTrigger}`,
+    "🔥 互动问答脚本：",
+    ...note.interactionScripts.map(script => `- [${script.scenario}] 用户：${script.userQuery} -> AI回复：${script.aiReply}`),
     "",
     `👥 适合人群：${note.targetAudience}`,
     "",
@@ -64,6 +67,7 @@ async function persistWorkflowOutput(type: WorkflowType, output: WorkflowOutput)
           title: note.title,
           body: noteToMarkdown(note),
           tags: note.tags.join(" "),
+          coverText: note.coverText,
           source: type
         }
       })

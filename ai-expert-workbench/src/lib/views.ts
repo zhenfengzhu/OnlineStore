@@ -13,6 +13,8 @@ export function toAssetView(asset: ContentAsset): ContentAssetView {
     variantType: asset.variantType,
     status: asset.status,
     isFavorite: asset.isFavorite,
+    coverImage: asset.coverImage,
+    coverText: asset.coverText,
     createdAt: asset.createdAt.toISOString()
   };
 }

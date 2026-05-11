@@ -15,7 +15,7 @@ export async function GET() {
 
 export async function PATCH(request: Request) {
   const body = await request.json();
-  const { id, status, isFavorite } = body;
+  const { id, status, isFavorite, coverImage, coverText, title, body: assetBody } = body;
 
   if (!id) return NextResponse.json({ error: "Missing ID" }, { status: 400 });
 
@@ -23,7 +23,11 @@ export async function PATCH(request: Request) {
     where: { id },
     data: {
       ...(status !== undefined && { status }),
-      ...(isFavorite !== undefined && { isFavorite })
+      ...(isFavorite !== undefined && { isFavorite }),
+      ...(coverImage !== undefined && { coverImage }),
+      ...(coverText !== undefined && { coverText }),
+      ...(title !== undefined && { title }),
+      ...(assetBody !== undefined && { body: assetBody })
     }
   });
 

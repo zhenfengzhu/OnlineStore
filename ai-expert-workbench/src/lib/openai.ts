@@ -26,8 +26,20 @@ const workflowSchema = {
           body: { type: "string" },
           tags: { type: "array", items: { type: "string" } },
           shootingSuggestion: { type: "string" },
-          firstComment: { type: "string" },
-          engagementTrigger: { type: "string" },
+          firstCommentVariants: { type: "array", items: { type: "string" } },
+          interactionScripts: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                scenario: { type: "string" },
+                userQuery: { type: "string" },
+                aiReply: { type: "string" }
+              },
+              required: ["scenario", "userQuery", "aiReply"]
+            }
+          },
           targetAudience: { type: "string" },
           riskTip: { type: "string" }
         },
@@ -38,8 +50,8 @@ const workflowSchema = {
           "body",
           "tags",
           "shootingSuggestion",
-          "firstComment",
-          "engagementTrigger",
+          "firstCommentVariants",
+          "interactionScripts",
           "targetAudience",
           "riskTip"
         ]
@@ -139,6 +151,14 @@ const prePublishCheckSchema = {
         },
         required: ["name", "status", "advice"]
       }
+    },
+    optimizedContent: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        title: { type: "string" },
+        body: { type: "string" }
+      }
     }
   },
   required: ["overallSuggestion", "checks"]
@@ -206,10 +226,13 @@ function getWorkflowPrompt(type: WorkflowType) {
 任务：生成 3 篇小红书图文笔记。
 要求：
 1. notes 必须正好返回 3 条。
-2. 每条都要包含标题、封面文案、视觉建议（封面排版与氛围）、正文、标签、拍摄建议、首评预设、互动触发点、适合人群和风险提醒。
+2. 每条都要包含标题、封面文案、视觉建议（封面排版与氛围）、正文、标签、拍摄建议、首评策略、互动问答脚本、适合人群和风险提醒。
 3. 视觉建议要具体：如“左侧大字报+右侧产品细节图，背景使用奶油色”。
-4. 首评预设要像真实用户：如“姐妹们，我蹲这个好久了，真的绝！”。
-5. 互动触发点要能引导评论：如“文末提问‘大家更喜欢哪种颜色？’”。
+4. firstCommentVariants 必须返回 3 个不同维度的首评：
+   - 维度1：补充信息/利益点 (例如：“姐妹们，这款还有隐藏赠品...”)。
+   - 维度2：引导互动 (例如：“你们觉得哪个颜色更好看？A还是B？”)。
+   - 维度3：真实用户好评感 (例如：“上周刚入，真的不踩雷！”)。
+5. interactionScripts 至少提供 3 组针对该内容的潜在用户提问及标准回复模板（scenario/userQuery/aiReply）。
 6. calendar 可以返回 3 条配套发布安排。`,
     content_calendar: `${base}
 任务：生成 30 天内容日历。
@@ -226,6 +249,20 @@ function getWorkflowPrompt(type: WorkflowType) {
 3. 互动钩子要设计在视频中间或结尾，引导点赞收藏或回复暗号。
 4. notes 可以返回 2-3 条对应视频标题的图文改写版本。`
   };
+
+  (prompts as any).inspiration_rewrite = `${base}
+任务：爆款反推 (Reverse Engineering)。
+要求：
+1. 你会收到一段“参考爆文 (Reference Content)”。
+2. 第一步：深度分析参考文案的“爆款公式”，包括：
+   - 钩子类型 (如：反直觉、利益诱惑、避坑提醒)。
+   - 内容结构 (如：痛点叙述 -> 解决方案 -> 价值升华)。
+   - 语气特色 (如：毒舌闺蜜、专业导师、佛系分享)。
+   - 互动埋点。
+3. 第二步：保持该公式不变，将“用户输入 (userInput)”中的产品/主题代入。
+4. 第三步：生成 3 篇全新的小红书笔记，存放在 notes 字段中。
+   - 必须包含配套的 firstCommentVariants (3个不同维度的首评) 和 interactionScripts (互动回复脚本)。
+5. summary 字段中请简要说明你提取到的“爆款公式”。`;
 
   return prompts[type];
 }
@@ -469,8 +506,13 @@ function getPrePublishCheckPrompt(assetType: string) {
 要求：
 1. 每一项都要给出明确 status：good（优秀）、watch（建议微调）、fix（必须修改）。
 2. advice 必须毒舌且精准，直接告诉创作者哪里“太AI了”或“太硬广了”，并给出改写范例。
-3. overallSuggestion 用 1-2 句话总结这条内容现在的爆文潜质评分（1-10分）。
-4. 只输出 JSON。
+3. 如果你在检查中发现了任何 status 为 "fix" 或 "watch" 的问题，请在 optimizedContent 字段中提供一份“修正/优化后的完整版本”。
+   - 替换掉所有违规词（如将“第一”改为“天花板级别”）。
+   - 优化标题的钩子。
+   - 调整正文开头的节奏。
+   - 确保 optimizedContent 里的 title 和 body 是完整的文案，可以直接覆盖原内容。
+4. overallSuggestion 用 1-2 句话总结这条内容现在的爆文潜质评分（1-10分）。
+5. 只输出 JSON。
 `;
 }
 
@@ -534,6 +576,7 @@ export async function runPrePublishCheck({
 
   return parseOutput<PrePublishCheckOutput>(response.output_text);
 }
+
 export async function runExpertSkill({
   userInput
 }: {
@@ -553,4 +596,26 @@ export async function runExpertSkill({
   });
 
   return { output: response.choices[0]?.message?.content ?? "" };
+}
+
+export async function generateImage({
+  prompt,
+  size = "1024x1792", // Optimized for vertical Xiaohongshu posts
+  quality = "standard"
+}: {
+  prompt: string;
+  size?: "1024x1024" | "1024x1792";
+  quality?: "standard" | "hd";
+}) {
+  const client = getClient();
+  const response = await client.images.generate({
+    model: "dall-e-3",
+    prompt: `小红书风，${prompt}。风格要求：高质量摄影或精美插画，光影专业，构图高级，适合做笔记封面。`,
+    n: 1,
+    size,
+    quality,
+    response_format: "b64_json"
+  });
+
+  return response.data[0].b64_json;
 }

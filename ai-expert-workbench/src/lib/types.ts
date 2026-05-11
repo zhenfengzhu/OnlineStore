@@ -9,6 +9,8 @@ export type ContentAssetView = {
   variantType: string | null;
   status: string;
   isFavorite: boolean;
+  coverImage: string | null;
+  coverText: string | null;
   createdAt: string;
 };
 
@@ -41,7 +43,13 @@ export type CalendarItemView = {
   createdAt: string;
 };
 
-export type WorkflowType = "thirty_notes" | "content_calendar" | "video_scripts";
+export type WorkflowType = "thirty_notes" | "content_calendar" | "video_scripts" | "inspiration_rewrite";
+
+export type InteractionScript = {
+  scenario: string;
+  userQuery: string;
+  aiReply: string;
+};
 
 export type GeneratedNote = {
   title: string;
@@ -50,8 +58,8 @@ export type GeneratedNote = {
   body: string;
   tags: string[];
   shootingSuggestion: string;
-  firstComment: string;
-  engagementTrigger: string;
+  firstCommentVariants: string[];
+  interactionScripts: InteractionScript[];
   targetAudience: string;
   riskTip: string;
 };
@@ -128,6 +136,10 @@ export type PrePublishCheckItem = {
 export type PrePublishCheckOutput = {
   overallSuggestion: string;
   checks: PrePublishCheckItem[];
+  optimizedContent?: {
+    title?: string;
+    body?: string;
+  };
 };
 
 export type AccountProfile = {
