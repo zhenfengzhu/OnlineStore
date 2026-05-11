@@ -10,6 +10,7 @@ export type ContentAssetMeta = {
   mildDrawback?: string;
   fitBoundary?: string;
   interactionQuestion?: string;
+  externalImages?: string[];
 };
 
 export type ContentAssetView = {

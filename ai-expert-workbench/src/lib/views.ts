@@ -48,7 +48,8 @@ function normalizeAssetMeta(value: unknown): ContentAssetMeta {
     concreteDetail: cleanText(raw.concreteDetail) || undefined,
     mildDrawback: cleanText(raw.mildDrawback) || undefined,
     fitBoundary: cleanText(raw.fitBoundary) || undefined,
-    interactionQuestion: cleanText(raw.interactionQuestion) || undefined
+    interactionQuestion: cleanText(raw.interactionQuestion) || undefined,
+    externalImages: cleanStringArray(raw.externalImages)
   };
 }
 

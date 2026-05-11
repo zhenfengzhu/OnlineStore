@@ -176,17 +176,43 @@ function shouldProxyImageUrl(value: string) {
 }
 
 function cleanPreviewImageCandidate(value: string) {
-  return value
+  const cleaned = value
     .replace(/\\u002F/g, "/")
     .replace(/\\\//g, "/")
+    .trim()
+    .replace(/^url\((["']?)/i, "")
+    .replace(/["']?\)$/g, "")
+    .trim();
+
+  if (/^data:image\/[a-zA-Z+.-]+;base64,/i.test(cleaned)) {
+    return cleaned;
+  }
+
+  return cleaned
     .split(/(?:;|&quot;|&#34;|&amp;quot;|background-|repeat:|position:|size:)/i)[0]
     .replace(/[)\].,，。;；]+$/g, "")
     .trim();
 }
 
 function isLikelyPreviewImageUrl(value: string) {
-  if (value.startsWith("data:image/") || value.startsWith("blob:") || value.startsWith("/api/image-proxy")) {
+  if (value.startsWith("data:image/")) {
+    return /^data:image\/[a-zA-Z+.-]+;base64,[A-Za-z0-9+/=]+$/i.test(value);
+  }
+
+  if (value.startsWith("blob:")) {
     return true;
+  }
+
+  if (value.startsWith("/api/image-proxy")) {
+    return value.includes("url=");
+  }
+
+  if (value.startsWith("/")) {
+    return /\.(avif|gif|jpe?g|png|webp)(?:[?#]|$)/i.test(value);
+  }
+
+  if (value.startsWith("data:")) {
+    return false;
   }
 
   try {
@@ -213,8 +239,43 @@ function getPreviewImageUrl(value: string) {
   return shouldProxyImageUrl(value) ? `/api/image-proxy?url=${encodeURIComponent(value)}` : value;
 }
 
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (readerEvent) => resolve(String(readerEvent.target?.result ?? ""));
+    reader.onerror = () => reject(new Error("图片读取失败。"));
+    reader.readAsDataURL(file);
+  });
+}
+
+function normalizePreviewImageSrc(value: string) {
+  const cleaned = cleanPreviewImageCandidate(value);
+  if (!cleaned || !isLikelyPreviewImageUrl(cleaned)) return null;
+  return getPreviewImageUrl(cleaned);
+}
+
+function getEditableAssetImageItems(asset: ContentAssetView) {
+  const items: Array<{ raw: string; src: string; source: "cover" | "external" }> = [];
+  const seen = new Set<string>();
+  const coverSrc = asset.coverImage ? normalizePreviewImageSrc(asset.coverImage) : null;
+
+  if (asset.coverImage && coverSrc) {
+    items.push({ raw: asset.coverImage, src: coverSrc, source: "cover" });
+    seen.add(coverSrc);
+  }
+
+  for (const rawImage of asset.meta?.externalImages ?? []) {
+    const src = normalizePreviewImageSrc(rawImage);
+    if (!src || seen.has(src)) continue;
+    items.push({ raw: rawImage, src, source: "external" });
+    seen.add(src);
+  }
+
+  return items;
+}
+
 function extractPreviewImages(asset: ContentAssetView) {
-  const imageUrls = [asset.coverImage ?? ""];
+  const imageUrls = [asset.coverImage ?? "", ...(asset.meta?.externalImages ?? [])];
   const urlMatches = asset.body.match(/(?:https?:\/\/[^\s<>"']+|data:image\/[a-zA-Z+.-]+;base64,[A-Za-z0-9+/=]+)/g) ?? [];
 
   for (const rawUrl of urlMatches) {
@@ -227,9 +288,8 @@ function extractPreviewImages(asset: ContentAssetView) {
   return Array.from(
     new Set(
       imageUrls
-        .map(cleanPreviewImageCandidate)
-        .filter(isLikelyPreviewImageUrl)
-        .map(getPreviewImageUrl)
+        .map(normalizePreviewImageSrc)
+        .filter((url): url is string => Boolean(url))
     )
   );
 }
@@ -238,9 +298,8 @@ function getExtractionPreviewImages(extraction: XiaohongshuExtractionView) {
   return Array.from(
     new Set(
       extraction.images
-        .map(cleanPreviewImageCandidate)
-        .filter(isLikelyPreviewImageUrl)
-        .map(getPreviewImageUrl)
+        .map(normalizePreviewImageSrc)
+        .filter((url): url is string => Boolean(url))
     )
   );
 }
@@ -629,6 +688,7 @@ function AssetCard({
     rewriteAsset,
     toggleFavorite,
     updateAssetStatus,
+    updateAssetExternalImages,
     checkingAssetId,
     rewritingAssetId,
     isGeneratingImageId,
@@ -636,14 +696,19 @@ function AssetCard({
   } = (window as any).workbenchActions || {};
   const check = prePublishChecks?.[asset.id] as PrePublishCheckOutput | undefined;
   const readiness = getAssetReadiness(asset, check);
+  const previewImages = extractPreviewImages(asset);
+  const editableImageItems = getEditableAssetImageItems(asset);
+  const displayedPreviewImages = editableImageItems.length > 0 ? editableImageItems.map((item) => item.src) : previewImages;
+  const externalImages = asset.meta?.externalImages ?? [];
+  const [draggingImageSrc, setDraggingImageSrc] = useState<string | null>(null);
 
   function openPreview(pin = false) {
-    const previewImages = extractPreviewImages(asset);
+    const coverImage = asset.coverImage ? normalizePreviewImageSrc(asset.coverImage) ?? undefined : undefined;
     setPreviewNote?.({
       title: asset.title,
       content: asset.body,
       coverText: asset.coverText || asset.title,
-      coverImage: asset.coverImage ? getPreviewImageUrl(asset.coverImage) : undefined,
+      coverImage,
       coverImages: previewImages
     });
     if (pin) {
@@ -655,17 +720,98 @@ function AssetCard({
     const input = document.createElement("input");
     input.type = "file";
     input.accept = "image/*";
+    input.multiple = true;
     input.onchange = async (event) => {
-      const file = (event.target as HTMLInputElement).files?.[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = (readerEvent) => {
-        const updateAssetCover = (window as any).workbenchActions?.updateAssetCover;
-        updateAssetCover?.(asset.id, readerEvent.target?.result as string);
-      };
-      reader.readAsDataURL(file);
+      const files = Array.from((event.target as HTMLInputElement).files ?? []);
+      if (files.length === 0) return;
+
+      const uploadedImages = (await Promise.all(files.map(readFileAsDataUrl)))
+        .map(cleanPreviewImageCandidate)
+        .filter(isLikelyPreviewImageUrl);
+      if (uploadedImages.length === 0) return;
+
+      const updateAssetCover = (window as any).workbenchActions?.updateAssetCover;
+      const nextExternalImages = [...externalImages];
+      const imagesToAppend = [...uploadedImages];
+
+      if (!asset.coverImage) {
+        const firstImage = imagesToAppend.shift();
+        if (firstImage) {
+          await updateAssetCover?.(asset.id, firstImage);
+        }
+      }
+
+      if (imagesToAppend.length > 0) {
+        await updateAssetExternalImages?.(asset.id, Array.from(new Set([...nextExternalImages, ...imagesToAppend])));
+      }
     };
     input.click();
+  }
+
+  async function importExternalImageUrls() {
+    const value = window.prompt("粘贴要新增的外部图片 URL，每行一个。会追加到现有配图，不会覆盖。", "");
+    if (value === null) return;
+
+    const urls = value
+      .split(/\r?\n/)
+      .flatMap((line) => line.split(/[\s,，]+/))
+      .map((item) => cleanPreviewImageCandidate(item))
+      .filter(isLikelyPreviewImageUrl);
+
+    if (urls.length === 0) return;
+
+    await updateAssetExternalImages?.(asset.id, Array.from(new Set([...externalImages, ...urls])));
+  }
+
+  async function persistAssetImageOrder(items: Array<{ raw: string; src: string; source: "cover" | "external" }>) {
+    const updateAssetCover = (window as any).workbenchActions?.updateAssetCover;
+    const nextCover = items[0]?.raw ?? null;
+    const nextExternalImages = items.slice(1).map((item) => item.raw);
+
+    await updateAssetCover?.(asset.id, nextCover);
+    await updateAssetExternalImages?.(asset.id, nextExternalImages);
+  }
+
+  async function removePreviewImage(image: string) {
+    const nextItems = editableImageItems.filter((item) => item.src !== image);
+    if (nextItems.length !== editableImageItems.length) {
+      await persistAssetImageOrder(nextItems);
+    }
+  }
+
+  async function reorderPreviewImage(targetImage: string) {
+    if (!draggingImageSrc || draggingImageSrc === targetImage) return;
+
+    const fromIndex = editableImageItems.findIndex((item) => item.src === draggingImageSrc);
+    const toIndex = editableImageItems.findIndex((item) => item.src === targetImage);
+    if (fromIndex < 0 || toIndex < 0) return;
+
+    const nextItems = [...editableImageItems];
+    const [movedItem] = nextItems.splice(fromIndex, 1);
+    nextItems.splice(toIndex, 0, movedItem);
+    setDraggingImageSrc(null);
+    await persistAssetImageOrder(nextItems);
+  }
+
+  function isEditablePreviewImage(image: string) {
+    return editableImageItems.some((item) => item.src === image);
+  }
+
+  function isCoverPreviewImage(image: string) {
+    const coverSrc = asset.coverImage ? normalizePreviewImageSrc(asset.coverImage) : null;
+    return coverSrc === image;
+  }
+
+  function getPreviewImageOrderLabel(image: string, index: number) {
+    if (!isEditablePreviewImage(image)) return index + 1;
+    if (index === 0) return "封面";
+    return index + 1;
+  }
+
+  function handleDragEnd() {
+    if (draggingImageSrc) {
+      setDraggingImageSrc(null);
+    }
   }
 
   return (
@@ -724,6 +870,78 @@ function AssetCard({
               {asset.body || "正文为空，请重新生成这条内容。"}
             </pre>
           </div>
+
+          {asset.type === "note" && displayedPreviewImages.length > 0 ? (
+            <div className="rounded-lg border bg-muted/20 p-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div>
+                  <div className="text-xs font-medium">配图预览</div>
+                  {editableImageItems.length > 1 ? (
+                    <div className="text-[10px] text-muted-foreground">拖动图片可调整发布顺序</div>
+                  ) : null}
+                </div>
+                <Badge variant="outline">{displayedPreviewImages.length} 张</Badge>
+              </div>
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                {displayedPreviewImages.slice(0, 8).map((image, index) => {
+                  const canEdit = isEditablePreviewImage(image);
+                  return (
+                    <div
+                      key={`${image}-${index}`}
+                      className={cn(
+                        "w-20 shrink-0 space-y-1",
+                        canEdit && "cursor-grab active:cursor-grabbing",
+                        draggingImageSrc === image && "opacity-50"
+                      )}
+                      draggable={canEdit}
+                      onDragStart={(event) => {
+                        if (!canEdit) return;
+                        setDraggingImageSrc(image);
+                        event.dataTransfer.effectAllowed = "move";
+                        event.dataTransfer.setData("text/plain", image);
+                      }}
+                      onDragOver={(event) => {
+                        if (!canEdit || !draggingImageSrc) return;
+                        event.preventDefault();
+                        event.dataTransfer.dropEffect = "move";
+                      }}
+                      onDrop={(event) => {
+                        if (!canEdit) return;
+                        event.preventDefault();
+                        void reorderPreviewImage(image);
+                      }}
+                      onDragEnd={handleDragEnd}
+                    >
+                      <div className={cn(
+                        "relative h-20 overflow-hidden rounded-lg border bg-muted transition-colors",
+                        canEdit && draggingImageSrc && draggingImageSrc !== image && "ring-1 ring-primary/40"
+                      )}>
+                        <img src={image} alt="" className="h-full w-full object-cover" />
+                        <div className="absolute bottom-1 left-1 rounded bg-background/90 px-1 text-[10px] text-muted-foreground">
+                          {getPreviewImageOrderLabel(image, index)}
+                        </div>
+                        {isCoverPreviewImage(image) ? (
+                          <div className="absolute left-1 top-1 rounded bg-primary px-1 text-[10px] text-primary-foreground">
+                            封面
+                          </div>
+                        ) : null}
+                      </div>
+                      {canEdit ? (
+                        <button
+                          type="button"
+                          className="h-6 w-full rounded-md border bg-background text-[11px] text-muted-foreground transition-colors hover:border-destructive/40 hover:bg-destructive/5 hover:text-destructive"
+                          onClick={() => removePreviewImage(image)}
+                          title="删除这张图片"
+                        >
+                          删除
+                        </button>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
 
           <AssetMetaPanel asset={asset} />
 
@@ -811,6 +1029,10 @@ function AssetCard({
                   <Button size="sm" variant="ghost" className="h-8 px-2 text-xs text-blue-600 hover:bg-blue-50 hover:text-blue-700" onClick={chooseCoverImage}>
                     <ImageIcon className="mr-1 h-3.5 w-3.5" />
                     上传配图
+                  </Button>
+                  <Button size="sm" variant="ghost" className="h-8 px-2 text-xs text-blue-600 hover:bg-blue-50 hover:text-blue-700" onClick={importExternalImageUrls}>
+                    <Link className="mr-1 h-3.5 w-3.5" />
+                    导入图片URL
                   </Button>
                   <Button
                     size="sm"
@@ -976,6 +1198,7 @@ function hasAssetMeta(asset: ContentAssetView) {
     meta.mildDrawback ||
     meta.fitBoundary ||
     meta.interactionQuestion ||
+    meta.externalImages?.length ||
     meta.firstCommentVariants?.length ||
     meta.interactionScripts?.length
   );
@@ -1072,6 +1295,18 @@ function AssetMetaPanel({ asset }: { asset: ContentAssetView }) {
         <div className="min-w-0">
           <div className="font-medium text-foreground">互动问题</div>
           <p className="mt-1 break-words [overflow-wrap:anywhere]">{meta.interactionQuestion}</p>
+        </div>
+      ) : null}
+      {(meta.externalImages ?? []).length > 0 ? (
+        <div className="min-w-0 sm:col-span-2">
+          <div className="font-medium text-foreground">外部图片</div>
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            {(meta.externalImages ?? []).map((image, index) => (
+              <Badge key={`${image}-${index}`} variant="outline" className="max-w-full text-[10px]">
+                <span className="truncate">图 {index + 1}</span>
+              </Badge>
+            ))}
+          </div>
         </div>
       ) : null}
     </div>
@@ -1324,6 +1559,7 @@ export function Workbench() {
       toggleFavorite,
       updateAssetStatus,
       updateAssetCover,
+      updateAssetExternalImages,
       applyPrePublishFix,
       generateAssetCover,
       checkingAssetId,
@@ -1996,7 +2232,7 @@ export function Workbench() {
     }
   }
 
-  async function updateAssetCover(assetId: string, coverImage: string) {
+  async function updateAssetCover(assetId: string, coverImage: string | null) {
     try {
       const response = await fetch("/api/assets", {
         method: "PATCH",
@@ -2007,9 +2243,26 @@ export function Workbench() {
       if (!response.ok || !data.asset) throw new Error(data.error ?? "封面更新失败。");
 
       setAssets((current) => current.map((item) => (item.id === assetId ? data.asset! : item)));
-      setMessage("封面图已更新，点击预览查看效果。");
+      setMessage(coverImage ? "封面图已更新，点击预览查看效果。" : "封面图已删除。");
     } catch (coverError) {
       setError(coverError instanceof Error ? coverError.message : "封面更新失败。");
+    }
+  }
+
+  async function updateAssetExternalImages(assetId: string, externalImages: string[]) {
+    try {
+      const response = await fetch("/api/assets", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: assetId, externalImages })
+      });
+      const data = (await response.json()) as { asset?: ContentAssetView; error?: string };
+      if (!response.ok || !data.asset) throw new Error(data.error ?? "外部图片导入失败。");
+
+      setAssets((current) => current.map((item) => (item.id === assetId ? data.asset! : item)));
+      setMessage(`已导入 ${externalImages.length} 张外部图片。`);
+    } catch (imageError) {
+      setError(imageError instanceof Error ? imageError.message : "外部图片导入失败。");
     }
   }
 
@@ -3755,7 +4008,7 @@ export function Workbench() {
                         title={asset.title}
                         content={asset.body}
                         coverText={asset.coverText || asset.title}
-                        coverImage={asset.coverImage ? getPreviewImageUrl(asset.coverImage) : undefined}
+                        coverImage={asset.coverImage ? normalizePreviewImageSrc(asset.coverImage) ?? undefined : undefined}
                         coverImages={extractPreviewImages(asset)}
                         isSticky={true}
                       />

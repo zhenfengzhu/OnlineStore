@@ -15,6 +15,21 @@ interface MobileSimulatorProps {
   isSticky?: boolean;
 }
 
+function isRenderableImageSrc(src: string) {
+  const value = src.trim();
+  if (!value) return false;
+  if (value.startsWith("data:image/")) return value.includes(",");
+  if (value.startsWith("blob:")) return true;
+  if (value.startsWith("/api/image-proxy")) return value.includes("url=");
+
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 export function MobileSimulator({
   isOpen,
   onClose,
@@ -27,6 +42,7 @@ export function MobileSimulator({
   isSticky = false
 }: MobileSimulatorProps) {
   const carouselRef = useRef<HTMLDivElement>(null);
+  const scrollSyncTimeoutRef = useRef<number | null>(null);
   const [viewMode, setViewMode] = useState<"cover" | "detail">("detail");
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [textStyle, setTextStyle] = useState({
@@ -47,7 +63,7 @@ export function MobileSimulator({
     };
   }, [isOpen, isSticky]);
 
-  const images = coverImages?.length ? coverImages : coverImage ? [coverImage] : [];
+  const images = (coverImages?.length ? coverImages : coverImage ? [coverImage] : []).filter(isRenderableImageSrc);
   const activeImage = images[activeImageIndex] ?? images[0];
   const hasMultipleImages = images.length > 1;
 
@@ -56,20 +72,46 @@ export function MobileSimulator({
   }, [coverImage, coverImages]);
 
   useEffect(() => {
-    const carousel = carouselRef.current;
-    if (!carousel || viewMode !== "detail") return;
-
-    carousel.scrollTo({
-      left: carousel.clientWidth * activeImageIndex,
-      behavior: "smooth"
-    });
-  }, [activeImageIndex, viewMode]);
+    return () => {
+      if (scrollSyncTimeoutRef.current) {
+        window.clearTimeout(scrollSyncTimeoutRef.current);
+      }
+    };
+  }, []);
 
   if (!isOpen && !isSticky) return null;
 
+  function scrollCarouselToIndex(index: number, behavior: ScrollBehavior = "smooth") {
+    const carousel = carouselRef.current;
+    if (!carousel || viewMode !== "detail") return;
+
+    if (scrollSyncTimeoutRef.current) {
+      window.clearTimeout(scrollSyncTimeoutRef.current);
+    }
+    scrollSyncTimeoutRef.current = window.setTimeout(() => {
+      scrollSyncTimeoutRef.current = null;
+    }, 450);
+
+    carousel.scrollTo({
+      left: carousel.clientWidth * index,
+      behavior
+    });
+  }
+
+  function selectImage(index: number) {
+    if (images.length === 0) return;
+    const nextIndex = Math.min(Math.max(index, 0), images.length - 1);
+    setActiveImageIndex(nextIndex);
+    scrollCarouselToIndex(nextIndex);
+  }
+
   function changeImage(delta: number) {
     if (!hasMultipleImages) return;
-    setActiveImageIndex((current) => (current + delta + images.length) % images.length);
+    setActiveImageIndex((current) => {
+      const nextIndex = (current + delta + images.length) % images.length;
+      scrollCarouselToIndex(nextIndex);
+      return nextIndex;
+    });
   }
 
   const renderContent = () => {
@@ -85,6 +127,7 @@ export function MobileSimulator({
                   className="flex aspect-[3/4] snap-x snap-mandatory overflow-x-auto scroll-smooth"
                   style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
                   onScroll={(event) => {
+                    if (scrollSyncTimeoutRef.current) return;
                     const target = event.currentTarget;
                     const nextIndex = Math.round(target.scrollLeft / Math.max(target.clientWidth, 1));
                     if (nextIndex !== activeImageIndex) {
@@ -130,7 +173,7 @@ export function MobileSimulator({
                             "h-1.5 rounded-full bg-white/70 transition-all",
                             index === activeImageIndex ? "w-5" : "w-1.5 opacity-70"
                           )}
-                          onClick={() => setActiveImageIndex(index)}
+                          onClick={() => selectImage(index)}
                         />
                       ))}
                     </div>
