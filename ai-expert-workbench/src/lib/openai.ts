@@ -44,7 +44,12 @@ const workflowSchema = {
             }
           },
           targetAudience: { type: "string" },
-          riskTip: { type: "string" }
+          riskTip: { type: "string" },
+          evidenceScene: { type: "string" },
+          concreteDetail: { type: "string" },
+          mildDrawback: { type: "string" },
+          fitBoundary: { type: "string" },
+          interactionQuestion: { type: "string" }
         },
         required: [
           "title",
@@ -56,7 +61,12 @@ const workflowSchema = {
           "firstCommentVariants",
           "interactionScripts",
           "targetAudience",
-          "riskTip"
+          "riskTip",
+          "evidenceScene",
+          "concreteDetail",
+          "mildDrawback",
+          "fitBoundary",
+          "interactionQuestion"
         ]
       }
     },
@@ -322,7 +332,12 @@ function normalizeWorkflowOutput(rawOutput: unknown): WorkflowOutput {
             })
             .filter((script) => script.scenario || script.userQuery || script.aiReply),
           targetAudience: toText(rawNote.targetAudience),
-          riskTip: toText(rawNote.riskTip)
+          riskTip: toText(rawNote.riskTip),
+          evidenceScene: firstTextValue(rawNoteRecord, ["evidenceScene", "sceneProof", "真实场景", "使用场景证据"]),
+          concreteDetail: firstTextValue(rawNoteRecord, ["concreteDetail", "detailProof", "具体细节", "细节证据"]),
+          mildDrawback: firstTextValue(rawNoteRecord, ["mildDrawback", "drawback", "minorCon", "轻微缺点"]),
+          fitBoundary: firstTextValue(rawNoteRecord, ["fitBoundary", "boundary", "适用边界", "适合不适合"]),
+          interactionQuestion: firstTextValue(rawNoteRecord, ["interactionQuestion", "question", "互动问题", "结尾提问"])
         };
       })
     : [];
@@ -371,6 +386,14 @@ function assertWorkflowOutputIsUsable(type: WorkflowType, output: WorkflowOutput
   if (emptyNotes.length > 0) {
     const names = emptyNotes.map((note) => note.title).filter(Boolean).join("、");
     throw new Error(`模型返回的图文笔记正文为空${names ? `：${names}` : ""}。请重新生成。`);
+  }
+
+  const weakEvidenceNotes = output.notes.filter(
+    (note) => !note.evidenceScene || !note.concreteDetail || !note.mildDrawback || !note.fitBoundary || !note.interactionQuestion
+  );
+  if (weakEvidenceNotes.length > 0) {
+    const names = weakEvidenceNotes.map((note) => note.title).filter(Boolean).join("、");
+    throw new Error(`模型返回的图文笔记缺少真实证据要素${names ? `：${names}` : ""}。请重新生成。`);
   }
 }
 
@@ -432,6 +455,7 @@ function getWorkflowPrompt(type: WorkflowType) {
 3. 如果某个字段与当前任务关系不大，返回空数组，不要编造无关内容。
 4. notes[].body 只能放正文，不要包含标题、封面文案、封面视觉建议、标签、拍摄建议、首评、互动脚本、适合人群或风险提醒。
 5. notes[].body 必须是可直接发布的小红书正文，至少 5 段、300 字左右，不能留空，不能只写占位符。
+6. 每篇 notes 必须返回 evidenceScene、concreteDetail、mildDrawback、fitBoundary、interactionQuestion，用来证明内容不是硬广。
 ${getXiaohongshuGraphicRules()}
 `;
 
@@ -440,14 +464,15 @@ ${getXiaohongshuGraphicRules()}
 任务：生成 1 篇小红书图文笔记。
 要求：
 1. notes 必须正好返回 1 条，不要一次返回多篇。
-2. 这 1 条必须包含标题、封面文案、视觉建议（封面排版与氛围）、正文、标签、拍摄建议、首评策略、互动问答脚本、适合人群和风险提醒。
+2. 这 1 条必须包含标题、封面文案、视觉建议（封面排版与氛围）、正文、标签、拍摄建议、首评策略、互动问答脚本、适合人群、风险提醒和证据要素。
 3. 视觉建议要具体：如“左侧大字报+右侧产品细节图，背景使用奶油色”。
 4. firstCommentVariants 必须返回 3 个不同维度的首评：
    - 维度1：补充信息/利益点 (例如：“姐妹们，这款还有隐藏赠品...”)。
    - 维度2：引导互动 (例如：“你们觉得哪个颜色更好看？A还是B？”)。
    - 维度3：真实用户好评感 (例如：“上周刚入，真的不踩雷！”)。
 5. interactionScripts 至少提供 3 组针对该内容的潜在用户提问及标准回复模板（scenario/userQuery/aiReply）。
-6. calendar 可以返回 1 条配套发布安排。`,
+6. evidenceScene 写一个真实使用场景；concreteDetail 写一个具体细节；mildDrawback 写一个轻微缺点；fitBoundary 写适合/不适合人群；interactionQuestion 写正文结尾可用的问题。
+7. calendar 可以返回 1 条配套发布安排。`,
     content_calendar: `${base}
 任务：生成 30 天内容日历。
 要求：
@@ -720,27 +745,33 @@ function getPrePublishCheckPrompt(assetType: string) {
 当前内容类型：${assetType}
 
 请深度检查这些维度：
-1. 标题吸引力：是否有心理钩子？是否在瀑布流中能一眼抓人？
-2. 封面文案：是否清晰？是否传达了核心利益点？
-3. 开头 3 行：是否在 2 秒内留住了用户？
-4. 收藏/干货密度：内容是否值得用户点“收藏”？
-5. 互动伏笔：是否设计了让用户想评论的槽点或问题？
-6. 违规词/限流风险：严查医疗词、绝对化用词、诱导私下交易等。
-7. SEO 埋点：核心关键词是否自然融入？
-8. 图文规则：是否符合当前工具里配置的小红书图文规则。
+1. 标题长度与钩子：标题是否 15-25 字内？是否有数字、疑问、情绪、清单、反差等点击理由？
+2. 开头 3 行：是否在 2 秒内给出痛点、结果、反差或目标人群？有没有慢铺垫？
+3. 真实证据感：正文是否有真实使用场景、具体细节、使用时长/频次/反应等可验证信息？
+4. 轻微缺点与适用边界：是否写出一个可信的小缺点、适合/不适合人群，避免全篇硬广？
+5. 卖点具体度：是否把卖点落到场景、动作、感受、结果，而不是只写“好用、绝了、必买”？
+6. 段落与手机阅读：是否短段落、2-3 行一段、重点清晰、emoji 使用克制？
+7. 互动设计：结尾是否有评论提问、投票、选择题或情绪共鸣？
+8. 标签策略：是否覆盖话题、品类、人群、场景；是否过泛或堆砌？
+9. 封面一致性：标题、封面文案和正文主卖点是否一致，首图是否有可视化方向？
+10. 违规词/限流风险：严查医疗词、绝对化用词、夸张承诺、诱导私下交易等。
+11. SEO 埋点：核心关键词是否自然融入，不像关键词堆砌？
+12. 当前图文规则：是否符合工具里配置的小红书图文规则。
 
 ${getXiaohongshuGraphicRules()}
 
 要求：
 1. 每一项都要给出明确 status：good（优秀）、watch（建议微调）、fix（必须修改）。
-2. advice 必须毒舌且精准，直接告诉创作者哪里“太AI了”或“太硬广了”，并给出改写范例。
-3. 如果你在检查中发现了任何 status 为 "fix" 或 "watch" 的问题，请在 optimizedContent 字段中提供一份“修正/优化后的完整版本”。
+2. checks 至少返回 8 项，必须覆盖标题、前三行、证据感、轻微缺点、适用边界、互动、标签、违规风险。
+3. advice 必须毒舌且精准，直接告诉创作者哪里“太AI了”或“太硬广了”，并给出改写范例。
+4. 如果你在检查中发现了任何 status 为 "fix" 或 "watch" 的问题，请在 optimizedContent 字段中提供一份“修正/优化后的完整版本”。
    - 替换掉所有违规词（如将“第一”改为“天花板级别”）。
    - 优化标题的钩子。
    - 调整正文开头的节奏。
+   - 补足真实场景、具体细节、轻微缺点、适用边界和互动结尾。
    - 确保 optimizedContent 里的 title 和 body 是完整的文案，可以直接覆盖原内容。
-4. overallSuggestion 用 1-2 句话总结这条内容现在的爆文潜质评分（1-10分）。
-5. 只输出 JSON。
+5. overallSuggestion 用 1-2 句话总结这条内容现在的爆文潜质评分（1-10分）。
+6. 只输出 JSON。
 `;
 }
 

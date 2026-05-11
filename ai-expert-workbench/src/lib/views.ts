@@ -43,7 +43,12 @@ function normalizeAssetMeta(value: unknown): ContentAssetMeta {
     firstCommentVariants: cleanStringArray(raw.firstCommentVariants),
     interactionScripts: normalizeInteractionScripts(raw.interactionScripts),
     targetAudience: cleanText(raw.targetAudience) || undefined,
-    riskTip: cleanText(raw.riskTip) || undefined
+    riskTip: cleanText(raw.riskTip) || undefined,
+    evidenceScene: cleanText(raw.evidenceScene) || undefined,
+    concreteDetail: cleanText(raw.concreteDetail) || undefined,
+    mildDrawback: cleanText(raw.mildDrawback) || undefined,
+    fitBoundary: cleanText(raw.fitBoundary) || undefined,
+    interactionQuestion: cleanText(raw.interactionQuestion) || undefined
   };
 }
 

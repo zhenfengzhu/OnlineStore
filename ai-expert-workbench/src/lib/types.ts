@@ -5,6 +5,11 @@ export type ContentAssetMeta = {
   interactionScripts?: InteractionScript[];
   targetAudience?: string;
   riskTip?: string;
+  evidenceScene?: string;
+  concreteDetail?: string;
+  mildDrawback?: string;
+  fitBoundary?: string;
+  interactionQuestion?: string;
 };
 
 export type ContentAssetView = {
@@ -117,6 +122,11 @@ export type GeneratedNote = {
   interactionScripts: InteractionScript[];
   targetAudience: string;
   riskTip: string;
+  evidenceScene: string;
+  concreteDetail: string;
+  mildDrawback: string;
+  fitBoundary: string;
+  interactionQuestion: string;
 };
 
 export type CalendarPlanItem = {
@@ -153,11 +163,19 @@ export type RewriteMode =
 
 export type StructuredBrief = {
   topic: string;
+  productName: string;
+  productCategory: string;
+  priceRange: string;
   targetAudience: string;
+  accountStage: string;
   contentForm: string;
   coreSellingPoint: string;
+  userPainPoint: string;
+  competitorDifference: string;
+  proofPoints: string;
   useScene: string;
   emotionOrPainPoint: string;
+  mustMention: string;
   toneStyle: string;
   forbiddenWords: string;
   additionalNotes: string;

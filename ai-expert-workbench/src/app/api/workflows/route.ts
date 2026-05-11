@@ -47,7 +47,12 @@ async function persistWorkflowOutput(type: WorkflowType, output: WorkflowOutput)
             firstCommentVariants: note.firstCommentVariants,
             interactionScripts: note.interactionScripts,
             targetAudience: note.targetAudience,
-            riskTip: note.riskTip
+            riskTip: note.riskTip,
+            evidenceScene: note.evidenceScene,
+            concreteDetail: note.concreteDetail,
+            mildDrawback: note.mildDrawback,
+            fitBoundary: note.fitBoundary,
+            interactionQuestion: note.interactionQuestion
           }),
           source: type
         }
