@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AlertCircle,
   CalendarDays,
@@ -114,6 +114,33 @@ const workflowOptions: Array<{ id: WorkflowType; label: string; description: str
     label: "爆款反推",
     description: "拆解并迁移爆文公式",
     icon: WandSparkles
+  }
+];
+
+const generationProgressSteps = [
+  {
+    title: "分析创作目标",
+    detail: "读取主题、人群、内容目标和账号人设，判断这篇内容要解决什么问题。"
+  },
+  {
+    title: "提炼卖点证据",
+    detail: "把产品卖点、使用场景、痛点和真实细节整理成可信的种草依据。"
+  },
+  {
+    title: "规划标题与开头",
+    detail: "选择小红书更容易被点开的标题结构，并设计前 3 行留人钩子。"
+  },
+  {
+    title: "组织正文结构",
+    detail: "按短段落、口语化、互动结尾的方式生成完整图文内容。"
+  },
+  {
+    title: "检查图文规则",
+    detail: "对照当前小红书图文规则，拆分正文、标签、封面建议和拍摄建议。"
+  },
+  {
+    title: "保存到资产库",
+    detail: "把生成结果写入资产库，准备后续体检、配图、预览和发布。"
   }
 ];
 
@@ -1185,6 +1212,69 @@ function EmptyState({
   );
 }
 
+function GenerationProgressPanel({
+  activeIndex
+}: {
+  activeIndex: number;
+}) {
+  const boundedIndex = Math.min(Math.max(activeIndex, 0), generationProgressSteps.length - 1);
+
+  return (
+    <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            <Loader2 className="h-4 w-4 animate-spin text-primary" />
+            AI 正在构思内容
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            当前阶段：{generationProgressSteps[boundedIndex].title}
+          </p>
+        </div>
+        <Badge variant="outline">
+          {boundedIndex + 1}/{generationProgressSteps.length}
+        </Badge>
+      </div>
+
+      <div className="mt-4 h-2 overflow-hidden rounded-full bg-background">
+        <div
+          className="h-full rounded-full bg-primary transition-all duration-500"
+          style={{ width: `${((boundedIndex + 1) / generationProgressSteps.length) * 100}%` }}
+        />
+      </div>
+
+      <div className="mt-4 space-y-2">
+        {generationProgressSteps.map((step, index) => {
+          const isDone = index < boundedIndex;
+          const isActive = index === boundedIndex;
+          return (
+            <div
+              key={step.title}
+              className={cn(
+                "flex gap-3 rounded-lg border bg-card p-3 text-sm transition-colors",
+                isActive && "border-primary/40 bg-primary/5"
+              )}
+            >
+              <div className={cn(
+                "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px]",
+                isDone && "border-primary bg-primary text-primary-foreground",
+                isActive && "border-primary text-primary",
+                !isDone && !isActive && "border-muted-foreground/30 text-muted-foreground"
+              )}>
+                {isDone ? <Check className="h-3 w-3" /> : index + 1}
+              </div>
+              <div className="min-w-0">
+                <div className={cn("font-medium", isActive && "text-primary")}>{step.title}</div>
+                <div className="mt-0.5 text-xs text-muted-foreground">{step.detail}</div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function hasAssetMeta(asset: ContentAssetView) {
   const meta = asset.meta ?? {};
   return Boolean(
@@ -1481,6 +1571,7 @@ function XiaohongshuPublishAssistant({
 }
 
 export function Workbench() {
+  const generationProgressTimerRef = useRef<number | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>("generate");
   const [assets, setAssets] = useState<ContentAssetView[]>([]);
   const [xiaohongshuExtractions, setXiaohongshuExtractions] = useState<XiaohongshuExtractionView[]>([]);
@@ -1492,6 +1583,7 @@ export function Workbench() {
   const [isBootstrapping, setIsBootstrapping] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [generationProgressIndex, setGenerationProgressIndex] = useState(0);
   const [isGeneratingImageId, setIsGeneratingImageId] = useState<string | null>(null);
   const [lastOutput, setLastOutput] = useState<WorkflowOutput | null>(null);
   const [modelConfig, setModelConfig] = useState<ModelConfigView | null>(null);
@@ -1568,6 +1660,14 @@ export function Workbench() {
       prePublishChecks
     };
   }, [checkingAssetId, rewritingAssetId, prePublishChecks]);
+
+  useEffect(() => {
+    return () => {
+      if (generationProgressTimerRef.current) {
+        window.clearInterval(generationProgressTimerRef.current);
+      }
+    };
+  }, []);
 
   async function loadAll() {
     setIsBootstrapping(true);
@@ -1953,6 +2053,14 @@ export function Workbench() {
     setIsLoading(true);
     setError(null);
     setMessage(null);
+    setGenerationProgressIndex(0);
+
+    if (generationProgressTimerRef.current) {
+      window.clearInterval(generationProgressTimerRef.current);
+    }
+    generationProgressTimerRef.current = window.setInterval(() => {
+      setGenerationProgressIndex((current) => Math.min(current + 1, generationProgressSteps.length - 1));
+    }, 1800);
 
     try {
       const response = await fetch("/api/workflows", {
@@ -1976,6 +2084,7 @@ export function Workbench() {
         throw new Error(data.error ?? "生成失败。");
       }
 
+      setGenerationProgressIndex(generationProgressSteps.length - 1);
       setLastOutput(data.output);
       setPostGenerateAssetIds(data.persistence?.assetIds ?? []);
       setMessage(
@@ -1986,6 +2095,10 @@ export function Workbench() {
     } catch (workflowError) {
       setError(workflowError instanceof Error ? workflowError.message : "生成失败。");
     } finally {
+      if (generationProgressTimerRef.current) {
+        window.clearInterval(generationProgressTimerRef.current);
+        generationProgressTimerRef.current = null;
+      }
       setIsLoading(false);
     }
   }
@@ -2867,8 +2980,12 @@ export function Workbench() {
 
                   <Button disabled={isLoading || !brief.topic.trim()} onClick={runWorkflow}>
                     {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                    开始生成
+                    {isLoading ? "生成中..." : "开始生成"}
                   </Button>
+
+                  {isLoading ? (
+                    <GenerationProgressPanel activeIndex={generationProgressIndex} />
+                  ) : null}
                 </CardContent>
               </Card>
 
