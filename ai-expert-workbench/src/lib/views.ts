@@ -1,6 +1,8 @@
-import type { CalendarItem, ContentAsset, XiaohongshuExtraction } from "@prisma/client";
+import type { CalendarItem, ChatMessage, ChatSession, ContentAsset, XiaohongshuExtraction } from "@prisma/client";
 import type {
   CalendarItemView,
+  ChatMessageView,
+  ChatSessionView,
   ContentAssetMeta,
   ContentAssetView,
   InteractionScript,
@@ -16,6 +18,10 @@ function cleanStringArray(value: unknown) {
   return Array.isArray(value)
     ? value.map((item) => cleanText(item)).filter(Boolean)
     : [];
+}
+
+function normalizeChatRole(role: string): ChatMessageView["role"] {
+  return role === "assistant" || role === "system" ? role : "user";
 }
 
 function normalizeInteractionScripts(value: unknown): InteractionScript[] {
@@ -148,6 +154,28 @@ export function toCalendarItemView(item: CalendarItem): CalendarItemView {
     goal: item.goal,
     status: item.status,
     createdAt: item.createdAt.toISOString()
+  };
+}
+
+export function toChatMessageView(message: ChatMessage): ChatMessageView {
+  return {
+    id: message.id,
+    role: normalizeChatRole(message.role),
+    content: message.content,
+    createdAt: message.createdAt.toISOString()
+  };
+}
+
+export function toChatSessionView(session: ChatSession & { messages: ChatMessage[] }): ChatSessionView {
+  return {
+    id: session.id,
+    title: session.title,
+    createdAt: session.createdAt.toISOString(),
+    updatedAt: session.updatedAt.toISOString(),
+    messages: session.messages
+      .slice()
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+      .map(toChatMessageView)
   };
 }
 

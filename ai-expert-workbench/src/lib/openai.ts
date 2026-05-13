@@ -3,6 +3,7 @@ import { formatXiaohongshuGraphicRules } from "@/lib/content-rule-defaults";
 import { getContentRules } from "@/lib/content-rules";
 import { getActiveModelConfig } from "@/lib/model-providers";
 import type {
+  ChatMessageView,
   PrePublishCheckOutput,
   RewriteMode,
   TitleStyle,
@@ -254,6 +255,10 @@ export function hasModelConfig() {
 export function getModelConfigError() {
   const active = getActiveModelConfig();
   return `缺少 ${active.provider.name} 配置，请检查 ${active.provider.apiKeyEnv}、${active.provider.modelEnv} 和接口地址。`;
+}
+
+export function getCurrentModelName() {
+  return getModel();
 }
 
 function parseOutput<T>(rawText: string): T {
@@ -957,6 +962,35 @@ export async function runExpertSkill({
   });
 
   return { output: response.choices[0]?.message?.content ?? "" };
+}
+
+export async function runChatConversation({
+  messages
+}: {
+  messages: Pick<ChatMessageView, "role" | "content">[];
+}) {
+  const client = getClient();
+  const safeMessages = messages
+    .filter((message) => message.content.trim())
+    .slice(-20)
+    .map((message) => ({
+      role: message.role === "assistant" ? "assistant" as const : "user" as const,
+      content: message.content
+    }));
+
+  const response = await client.chat.completions.create({
+    model: getModel(),
+    messages: [
+      {
+        role: "system",
+        content:
+          "你是一个资深小红书电商内容创作助手。你可以陪用户讨论选题、标题、正文、图片顺序、发布风险和内容优化。回答要直接、具体、可执行，不要假装能看到未提供的数据。"
+      },
+      ...safeMessages
+    ]
+  });
+
+  return response.choices[0]?.message?.content?.trim() || "我没有生成有效回复，请换个问法再试一次。";
 }
 
 export async function generateImage({

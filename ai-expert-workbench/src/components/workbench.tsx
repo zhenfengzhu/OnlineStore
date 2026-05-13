@@ -49,6 +49,7 @@ import { REWRITE_OPTIONS, TITLE_STYLE_OPTIONS, WORKFLOW_TEMPLATES } from "@/lib/
 import type {
   AccountProfile,
   CalendarItemView,
+  ChatSessionView,
   ContentAssetView,
   ContentRulesConfig,
   ExpertSession,
@@ -64,7 +65,7 @@ import type {
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-type TabKey = "generate" | "xiaohongshu" | "calendar" | "assets" | "skills" | "settings";
+type TabKey = "generate" | "xiaohongshu" | "calendar" | "assets" | "chat" | "skills" | "settings";
 
 type NavItem = {
   id: TabKey;
@@ -1576,6 +1577,10 @@ export function Workbench() {
   const [assets, setAssets] = useState<ContentAssetView[]>([]);
   const [xiaohongshuExtractions, setXiaohongshuExtractions] = useState<XiaohongshuExtractionView[]>([]);
   const [calendarItems, setCalendarItems] = useState<CalendarItemView[]>([]);
+  const [chatSessions, setChatSessions] = useState<ChatSessionView[]>([]);
+  const [activeChatSessionId, setActiveChatSessionId] = useState<string | null>(null);
+  const [chatInput, setChatInput] = useState("");
+  const [isChatSending, setIsChatSending] = useState(false);
   const [workflowType, setWorkflowType] = useState<WorkflowType>("thirty_notes");
   const [brief, setBrief] = useState<StructuredBrief>(defaultBrief);
   const [contentGoal, setContentGoal] = useState(contentGoals[1]);
@@ -1673,24 +1678,30 @@ export function Workbench() {
     setIsBootstrapping(true);
     setError(null);
     try {
-      const [assetsRes, calendarRes, xiaohongshuRes] = await Promise.all([
+      const [assetsRes, calendarRes, xiaohongshuRes, chatRes] = await Promise.all([
         fetch("/api/assets"),
         fetch("/api/calendar"),
-        fetch("/api/xiaohongshu")
+        fetch("/api/xiaohongshu"),
+        fetch("/api/chat/sessions")
       ]);
-      const [assetsData, calendarData, xiaohongshuData] = await Promise.all([
+      const [assetsData, calendarData, xiaohongshuData, chatData] = await Promise.all([
         assetsRes.json(),
         calendarRes.json(),
-        xiaohongshuRes.json()
+        xiaohongshuRes.json(),
+        chatRes.json()
       ]);
 
       if (!assetsRes.ok) throw new Error(assetsData.error ?? "内容资产加载失败。");
       if (!calendarRes.ok) throw new Error(calendarData.error ?? "内容日历加载失败。");
       if (!xiaohongshuRes.ok) throw new Error(xiaohongshuData.error ?? "图文提取记录加载失败。");
+      if (!chatRes.ok) throw new Error(chatData.error ?? "AI 聊天记录加载失败。");
 
       setAssets((assetsData.assets ?? []) as ContentAssetView[]);
       setCalendarItems((calendarData.items ?? []) as CalendarItemView[]);
       setXiaohongshuExtractions((xiaohongshuData.extractions ?? []) as XiaohongshuExtractionView[]);
+      const sessions = (chatData.sessions ?? []) as ChatSessionView[];
+      setChatSessions(sessions);
+      setActiveChatSessionId((current) => current ?? sessions[0]?.id ?? null);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "数据加载失败。");
     } finally {
@@ -2423,6 +2434,77 @@ export function Workbench() {
     setMessage("批量封面生成完成！");
   }
 
+  async function createChatSession() {
+    setError(null);
+    try {
+      const response = await fetch("/api/chat/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "新的 AI 聊天" })
+      });
+      const data = (await response.json()) as { session?: ChatSessionView; error?: string };
+      if (!response.ok || !data.session) throw new Error(data.error ?? "新建聊天失败。");
+
+      setChatSessions((current) => [data.session!, ...current]);
+      setActiveChatSessionId(data.session.id);
+      setChatInput("");
+    } catch (chatError) {
+      setError(chatError instanceof Error ? chatError.message : "新建聊天失败。");
+    }
+  }
+
+  async function deleteChatSession(id: string) {
+    if (!confirm("确认删除这段聊天记录？该操作不可恢复。")) return;
+
+    try {
+      const response = await fetch(`/api/chat/sessions?id=${id}`, { method: "DELETE" });
+      const data = (await response.json()) as { success?: boolean; error?: string };
+      if (!response.ok || !data.success) throw new Error(data.error ?? "删除聊天失败。");
+
+      setChatSessions((current) => {
+        const next = current.filter((session) => session.id !== id);
+        setActiveChatSessionId((activeId) => (activeId === id ? next[0]?.id ?? null : activeId));
+        return next;
+      });
+      setMessage("聊天记录已删除。");
+    } catch (chatError) {
+      setError(chatError instanceof Error ? chatError.message : "删除聊天失败。");
+    }
+  }
+
+  async function sendChatMessage() {
+    const content = chatInput.trim();
+    if (!content || isChatSending) return;
+
+    setIsChatSending(true);
+    setError(null);
+    setMessage(null);
+
+    try {
+      const response = await fetch("/api/chat/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId: activeChatSessionId,
+          content
+        })
+      });
+      const data = (await response.json()) as { session?: ChatSessionView; error?: string };
+      if (!response.ok || !data.session) throw new Error(data.error ?? "AI 回复失败。");
+
+      setChatSessions((current) => {
+        const others = current.filter((session) => session.id !== data.session!.id);
+        return [data.session!, ...others];
+      });
+      setActiveChatSessionId(data.session.id);
+      setChatInput("");
+    } catch (chatError) {
+      setError(chatError instanceof Error ? chatError.message : "AI 回复失败。");
+    } finally {
+      setIsChatSending(false);
+    }
+  }
+
   async function runExpertSkill() {
     const skill = expertSkills.find((s) => s.id === currentSkillId);
     if (!skill || !skillInput.trim()) return;
@@ -2517,6 +2599,7 @@ export function Workbench() {
   const lastOutputCalendar = lastOutput?.calendar ?? [];
   const lastOutputScripts = lastOutput?.scripts ?? [];
   const lastOutputNextActions = lastOutput?.nextActions ?? [];
+  const activeChatSession = chatSessions.find((session) => session.id === activeChatSessionId) ?? chatSessions[0] ?? null;
   const postGenerateAssets = postGenerateAssetIds
     .map((id) => assets.find((asset) => asset.id === id))
     .filter((asset): asset is ContentAssetView => Boolean(asset));
@@ -2527,6 +2610,7 @@ export function Workbench() {
     { id: "xiaohongshu", label: "图文提取", description: "小红书链接解析", icon: Link },
     { id: "calendar", label: "内容日历", description: "查看排期与主题", icon: CalendarDays },
     { id: "assets", label: "资产库", description: "复制、预览与二改", icon: FolderOpen },
+    { id: "chat", label: "AI聊天", description: "聊天记录", icon: MessageSquare },
     { id: "skills", label: "专家工具箱", description: "专项能力模拟", icon: MessageSquareQuote },
     { id: "settings", label: "模型设置", description: "切换模型供应商", icon: Settings }
   ];
@@ -3710,6 +3794,176 @@ export function Workbench() {
                 )}
               </div>
             </div>
+          ) : null}
+
+          {!isBootstrapping && activeTab === "chat" ? (
+            <section className="grid gap-5 lg:grid-cols-[320px_1fr]">
+              <Card>
+                <CardHeader className="space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <CardTitle className="flex items-center gap-2 text-base">
+                        <MessageSquare className="h-4 w-4" />
+                        AI聊天
+                      </CardTitle>
+                      <CardDescription>和当前模型对话，记录会保存在本地。</CardDescription>
+                    </div>
+                    <Button size="sm" onClick={createChatSession}>
+                      新建
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {chatSessions.length > 0 ? (
+                    chatSessions.map((session) => {
+                      const isActive = activeChatSession?.id === session.id;
+                      const lastMessage = session.messages[session.messages.length - 1];
+                      return (
+                        <button
+                          key={session.id}
+                          type="button"
+                          className={cn(
+                            "group w-full rounded-xl border p-3 text-left transition-colors hover:bg-accent",
+                            isActive && "border-primary bg-primary/5"
+                          )}
+                          onClick={() => setActiveChatSessionId(session.id)}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-medium">{session.title}</div>
+                              <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                                {lastMessage?.content ?? "还没有消息"}
+                              </div>
+                              <div className="mt-2 text-[10px] text-muted-foreground">
+                                {new Date(session.updatedAt).toLocaleString()}
+                              </div>
+                            </div>
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              className="rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void deleteChatSession(session.id);
+                              }}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter" || event.key === " ") {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  void deleteChatSession(session.id);
+                                }
+                              }}
+                              title="删除聊天"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <EmptyState
+                      title="暂无聊天"
+                      description="新建一段聊天，和 AI 讨论选题、标题、正文或发布风险。"
+                      action={<Button size="sm" onClick={createChatSession}>新建聊天</Button>}
+                    />
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card className="min-w-0">
+                <CardHeader>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <CardTitle className="truncate text-base">
+                        {activeChatSession?.title ?? "选择或新建一段聊天"}
+                      </CardTitle>
+                      <CardDescription>
+                        当前模型：{modelConfig?.activeProviderName ?? "未加载"} / {modelConfig?.activeModel ?? "未加载"}
+                      </CardDescription>
+                    </div>
+                    <Button size="sm" variant="outline" onClick={createChatSession}>
+                      新会话
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="min-h-[420px] max-h-[60vh] overflow-y-auto rounded-xl border bg-muted/20 p-4">
+                    {activeChatSession?.messages.length ? (
+                      <div className="space-y-4">
+                        {activeChatSession.messages.map((chatMessage) => {
+                          const isUser = chatMessage.role === "user";
+                          return (
+                            <div
+                              key={chatMessage.id}
+                              className={cn("flex", isUser ? "justify-end" : "justify-start")}
+                            >
+                              <div className={cn(
+                                "max-w-[85%] rounded-xl border p-3 text-sm",
+                                isUser ? "bg-primary text-primary-foreground" : "bg-card"
+                              )}>
+                                <div className={cn("mb-1 text-[10px]", isUser ? "text-primary-foreground/70" : "text-muted-foreground")}>
+                                  {isUser ? "你" : "AI"} · {new Date(chatMessage.createdAt).toLocaleTimeString()}
+                                </div>
+                                <div className="whitespace-pre-wrap break-words leading-relaxed [overflow-wrap:anywhere]">
+                                  {chatMessage.content}
+                                </div>
+                                {!isUser ? (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="mt-2 h-7 px-2 text-xs"
+                                    onClick={() => copyText(chatMessage.content)}
+                                  >
+                                    <Clipboard className="h-3.5 w-3.5" />
+                                    复制
+                                  </Button>
+                                ) : null}
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {isChatSending ? (
+                          <div className="flex justify-start">
+                            <div className="rounded-xl border bg-card p-3 text-sm text-muted-foreground">
+                              <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
+                              AI 正在回复...
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <EmptyState
+                        title="开始一段 AI 对话"
+                        description="可以问选题、标题、正文、图片顺序、发布风险，也可以粘贴内容让 AI 帮你改。"
+                      />
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <Textarea
+                      className="min-h-28"
+                      value={chatInput}
+                      onChange={(event) => setChatInput(event.target.value)}
+                      placeholder="比如：帮我把这篇宠物玩具笔记改得更像真人分享，别太硬广..."
+                      onKeyDown={(event) => {
+                        if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+                          event.preventDefault();
+                          void sendChatMessage();
+                        }
+                      }}
+                    />
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-xs text-muted-foreground">Ctrl / Cmd + Enter 发送</div>
+                      <Button disabled={isChatSending || !chatInput.trim()} onClick={sendChatMessage}>
+                        {isChatSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageSquare className="h-4 w-4" />}
+                        发送
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </section>
           ) : null}
 
           {!isBootstrapping && activeTab === "skills" ? (

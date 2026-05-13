@@ -92,6 +92,21 @@ export type ExpertSession = {
   timestamp: string;
 };
 
+export type ChatMessageView = {
+  id: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  createdAt: string;
+};
+
+export type ChatSessionView = {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  messages: ChatMessageView[];
+};
+
 export type CalendarItemView = {
   id: string;
   day: number;
