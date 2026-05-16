@@ -5,7 +5,7 @@ import type { WorkflowOutput, WorkflowType } from "@/lib/types";
 
 export const runtime = "nodejs";
 
-const workflowTypes: WorkflowType[] = ["thirty_notes", "content_calendar", "video_scripts", "inspiration_rewrite"];
+const workflowTypes: WorkflowType[] = ["thirty_notes", "content_calendar", "inspiration_rewrite"];
 
 type WorkflowBody = {
   type?: WorkflowType | "expert_skill";

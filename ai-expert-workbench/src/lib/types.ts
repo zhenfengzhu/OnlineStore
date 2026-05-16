@@ -60,17 +60,37 @@ export type XiaohongshuRewriteBrief = {
   forbiddenRisks: string[];
 };
 
+export type XiaohongshuValueScore = {
+  name: string;
+  score: number;
+  reason: string;
+};
+
+export type XiaohongshuVisualPlanItem = {
+  imageIndex: number;
+  role: string;
+  creatorAction: string;
+};
+
 export type XiaohongshuAnalysisOutput = {
   summary: string;
   hookType: string;
   titleAnalysis: string;
   openingAnalysis: string;
+  titleFormula: string;
+  openingHook: string;
+  bodyFormula: string;
   contentStructure: XiaohongshuStructureItem[];
   sellingPoints: string[];
   emotionTriggers: string[];
   interactionHooks: string[];
   visualNotes: string[];
+  visualPlan: XiaohongshuVisualPlanItem[];
+  missingVisuals: string[];
   riskNotes: string[];
+  valueScores: XiaohongshuValueScore[];
+  transferableMoves: string[];
+  doNotReuse: string[];
   reusableFormula: string;
   rewriteBrief: XiaohongshuRewriteBrief;
 };
@@ -119,7 +139,7 @@ export type CalendarItemView = {
   createdAt: string;
 };
 
-export type WorkflowType = "thirty_notes" | "content_calendar" | "video_scripts" | "inspiration_rewrite";
+export type WorkflowType = "thirty_notes" | "content_calendar" | "inspiration_rewrite";
 
 export type InteractionScript = {
   scenario: string;

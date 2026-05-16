@@ -7,6 +7,8 @@ import type {
   ContentAssetView,
   InteractionScript,
   XiaohongshuAnalysisOutput,
+  XiaohongshuValueScore,
+  XiaohongshuVisualPlanItem,
   XiaohongshuExtractionView
 } from "@/lib/types";
 
@@ -183,6 +185,36 @@ function asStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
+function normalizeValueScores(value: unknown): XiaohongshuValueScore[] {
+  return Array.isArray(value)
+    ? value
+        .map((item) => {
+          const raw = item as Partial<XiaohongshuValueScore>;
+          return {
+            name: cleanText(raw.name),
+            score: Math.min(100, Math.max(0, Number(raw.score) || 0)),
+            reason: cleanText(raw.reason)
+          };
+        })
+        .filter((item) => item.name || item.reason)
+    : [];
+}
+
+function normalizeVisualPlan(value: unknown): XiaohongshuVisualPlanItem[] {
+  return Array.isArray(value)
+    ? value
+        .map((item, index) => {
+          const raw = item as Partial<XiaohongshuVisualPlanItem>;
+          return {
+            imageIndex: Math.max(1, Number(raw.imageIndex) || index + 1),
+            role: cleanText(raw.role),
+            creatorAction: cleanText(raw.creatorAction)
+          };
+        })
+        .filter((item) => item.role || item.creatorAction)
+    : [];
+}
+
 function normalizeAnalysis(value: unknown): XiaohongshuAnalysisOutput | null {
   if (!value || typeof value !== "object") return null;
   const raw = value as Partial<XiaohongshuAnalysisOutput>;
@@ -195,6 +227,9 @@ function normalizeAnalysis(value: unknown): XiaohongshuAnalysisOutput | null {
     hookType: typeof raw.hookType === "string" ? raw.hookType : "未识别",
     titleAnalysis: typeof raw.titleAnalysis === "string" ? raw.titleAnalysis : "",
     openingAnalysis: typeof raw.openingAnalysis === "string" ? raw.openingAnalysis : "",
+    titleFormula: typeof raw.titleFormula === "string" ? raw.titleFormula : "",
+    openingHook: typeof raw.openingHook === "string" ? raw.openingHook : "",
+    bodyFormula: typeof raw.bodyFormula === "string" ? raw.bodyFormula : "",
     contentStructure: Array.isArray(raw.contentStructure)
       ? raw.contentStructure
           .map((item) => ({
@@ -209,7 +244,12 @@ function normalizeAnalysis(value: unknown): XiaohongshuAnalysisOutput | null {
     emotionTriggers: asStringArray(raw.emotionTriggers),
     interactionHooks: asStringArray(raw.interactionHooks),
     visualNotes: asStringArray(raw.visualNotes),
+    visualPlan: normalizeVisualPlan(raw.visualPlan),
+    missingVisuals: asStringArray(raw.missingVisuals),
     riskNotes: asStringArray(raw.riskNotes),
+    valueScores: normalizeValueScores(raw.valueScores),
+    transferableMoves: asStringArray(raw.transferableMoves),
+    doNotReuse: asStringArray(raw.doNotReuse),
     reusableFormula: typeof raw.reusableFormula === "string" ? raw.reusableFormula : "",
     rewriteBrief: {
       targetAudience: typeof rawBrief.targetAudience === "string" ? rawBrief.targetAudience : "",
@@ -225,6 +265,9 @@ function normalizeAnalysis(value: unknown): XiaohongshuAnalysisOutput | null {
     normalized.summary,
     normalized.titleAnalysis,
     normalized.openingAnalysis,
+    normalized.titleFormula,
+    normalized.openingHook,
+    normalized.bodyFormula,
     normalized.reusableFormula,
     normalized.rewriteBrief.targetAudience,
     normalized.rewriteBrief.contentAngle
@@ -234,7 +277,12 @@ function normalizeAnalysis(value: unknown): XiaohongshuAnalysisOutput | null {
     normalized.emotionTriggers,
     normalized.interactionHooks,
     normalized.visualNotes,
+    normalized.visualPlan,
+    normalized.missingVisuals,
     normalized.riskNotes,
+    normalized.valueScores,
+    normalized.transferableMoves,
+    normalized.doNotReuse,
     normalized.rewriteBrief.replaceableVariables,
     normalized.rewriteBrief.forbiddenRisks
   ].some((items) => items.length > 0);

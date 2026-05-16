@@ -50,29 +50,6 @@ export const WORKFLOW_TEMPLATES: Array<{
       forbiddenWords: "保证爆单、一定涨粉",
       additionalNotes: "覆盖图文、视频、测评、避坑、清单和场景内容"
     }
-  },
-  {
-    title: "短视频脚本",
-    workflowType: "video_scripts",
-    brief: {
-      topic: "宠物玩具短视频",
-      productName: "宠物互动玩具",
-      productCategory: "宠物短视频素材",
-      priceRange: "低成本可拍",
-      targetAudience: "年轻养宠人群",
-      accountStage: "涨粉互动期，需要提升完播和评论",
-      contentForm: "短视频脚本",
-      coreSellingPoint: "互动好拍、节奏快、能看出宠物真实反应",
-      userPainPoint: "不会设计开头钩子，拍出来像流水账",
-      competitorDifference: "比普通口播更强调镜头动作和宠物即时反应",
-      proofPoints: "自然光、手机竖屏、猫咪扑咬/观察/互动的真实镜头",
-      useScene: "手机竖屏拍摄、家庭自然光、单人执行",
-      emotionOrPainPoint: "不会设计开头钩子，也不会拆镜头",
-      mustMention: "开头 3 秒必须有反应镜头或反差钩子",
-      toneStyle: "节奏干脆，适合边拍边念，镜头说明要简单直接",
-      forbiddenWords: "百分百爆款、闭眼买",
-      additionalNotes: "每条都要适合低成本拍摄"
-    }
   }
 ];
 

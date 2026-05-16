@@ -17,6 +17,8 @@ export async function PATCH(request: Request) {
   const body = (await request.json()) as {
     id?: string;
     status?: string;
+    assetTitle?: string | null;
+    goal?: string | null;
   };
 
   if (!body.id) {
@@ -26,7 +28,9 @@ export async function PATCH(request: Request) {
   const item = await prisma.calendarItem.update({
     where: { id: body.id },
     data: {
-      status: body.status?.trim() || undefined
+      status: body.status?.trim() || undefined,
+      assetTitle: typeof body.assetTitle === "string" ? body.assetTitle.trim() || null : undefined,
+      goal: typeof body.goal === "string" ? body.goal.trim() || null : undefined
     }
   });
 

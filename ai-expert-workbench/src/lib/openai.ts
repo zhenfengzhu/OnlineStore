@@ -186,6 +186,9 @@ const xiaohongshuAnalysisSchema = {
     hookType: { type: "string" },
     titleAnalysis: { type: "string" },
     openingAnalysis: { type: "string" },
+    titleFormula: { type: "string" },
+    openingHook: { type: "string" },
+    bodyFormula: { type: "string" },
     contentStructure: {
       type: "array",
       items: {
@@ -204,7 +207,36 @@ const xiaohongshuAnalysisSchema = {
     emotionTriggers: { type: "array", items: { type: "string" } },
     interactionHooks: { type: "array", items: { type: "string" } },
     visualNotes: { type: "array", items: { type: "string" } },
+    visualPlan: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          imageIndex: { type: "number" },
+          role: { type: "string" },
+          creatorAction: { type: "string" }
+        },
+        required: ["imageIndex", "role", "creatorAction"]
+      }
+    },
+    missingVisuals: { type: "array", items: { type: "string" } },
     riskNotes: { type: "array", items: { type: "string" } },
+    valueScores: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          name: { type: "string" },
+          score: { type: "number" },
+          reason: { type: "string" }
+        },
+        required: ["name", "score", "reason"]
+      }
+    },
+    transferableMoves: { type: "array", items: { type: "string" } },
+    doNotReuse: { type: "array", items: { type: "string" } },
     reusableFormula: { type: "string" },
     rewriteBrief: {
       type: "object",
@@ -225,12 +257,20 @@ const xiaohongshuAnalysisSchema = {
     "hookType",
     "titleAnalysis",
     "openingAnalysis",
+    "titleFormula",
+    "openingHook",
+    "bodyFormula",
     "contentStructure",
     "sellingPoints",
     "emotionTriggers",
     "interactionHooks",
     "visualNotes",
+    "visualPlan",
+    "missingVisuals",
     "riskNotes",
+    "valueScores",
+    "transferableMoves",
+    "doNotReuse",
     "reusableFormula",
     "rewriteBrief"
   ]
@@ -484,14 +524,7 @@ ${getXiaohongshuGraphicRules()}
 1. calendar 必须正好返回 30 条。
 2. 每条都要包含 day、topic、format、angle、assetTitle、goal。
 3. 选题要符合阶梯式节奏：第1周侧重人设与专业干货，第2-3周侧重种草与真实体验，第4周侧重转化与大促感。
-4. notes 最多返回 3 条代表性样稿，scripts 最多返回 2 条参考脚本。`,
-    video_scripts: `${base}
-任务：生成短视频脚本。
-要求：
-1. scripts 至少返回 8 条。
-2. 每条都要包含标题、开头钩子、镜头列表、口播、结尾引导和互动钩子。
-3. 互动钩子要设计在视频中间或结尾，引导点赞收藏或回复暗号。
-4. notes 可以返回 2-3 条对应视频标题的图文改写版本。`,
+4. notes 最多返回 3 条代表性样稿，scripts 返回空数组。`,
     inspiration_rewrite: `${base}
 任务：爆款反推 (Reverse Engineering)。
 要求：
@@ -853,15 +886,19 @@ function getXiaohongshuAnalysisPrompt() {
 5. 互动设计：评论区可能被什么问题或槽点触发。
 6. 图片策略：基于图片数量和正文推断封面/多图排序的作用；如果没有足够图片信息，不要编造具体画面，只给可验证的策略判断。
 7. 可迁移公式：输出可以套到其他产品上的清晰模板。
-8. 风险：指出不应该照搬、可能硬广、可能违规或版权风险的部分。
+8. 参考价值评分：标题吸引力、正文结构、种草强度、互动设计、转化潜力，每项 0-100 分并说明原因。
+9. 风险：指出不应该照搬、可能硬广、可能违规或版权风险的部分。
 
 要求：
 1. 用中文输出。
 2. 不要复述原文，要解释它为什么有效。
 3. 每个字段必须具体、可执行，避免空泛词。
 4. 禁止输出空字符串、空数组或“未识别”。如果原文信息有限，也要基于标题、正文、图片数量给出可验证的拆解判断。
-5. contentStructure 至少 4 条，sellingPoints 至少 3 条，emotionTriggers 至少 3 条，interactionHooks 至少 2 条，visualNotes 至少 2 条，riskNotes 至少 2 条，replaceableVariables 至少 4 条，forbiddenRisks 至少 2 条。
-6. 只输出 JSON。
+5. titleFormula 输出“人群/场景 + 痛点/反差 + 结果/收益”这类可复用公式；openingHook 输出前三行留人的具体写法；bodyFormula 输出正文段落公式。
+6. visualPlan 至少按图片数量给 1-6 条图片顺序建议；missingVisuals 至少 2 条缺图提醒。
+7. transferableMoves 至少 4 条，doNotReuse 至少 3 条，valueScores 必须包含“标题吸引力、正文结构、种草强度、互动设计、转化潜力”五项。
+8. contentStructure 至少 4 条，sellingPoints 至少 3 条，emotionTriggers 至少 3 条，interactionHooks 至少 2 条，visualNotes 至少 2 条，riskNotes 至少 2 条，replaceableVariables 至少 4 条，forbiddenRisks 至少 2 条。
+9. 只输出 JSON。
 `;
 }
 
@@ -888,12 +925,20 @@ export async function runXiaohongshuAnalysis({
         "hookType",
         "titleAnalysis",
         "openingAnalysis",
+        "titleFormula",
+        "openingHook",
+        "bodyFormula",
         "contentStructure",
         "sellingPoints",
         "emotionTriggers",
         "interactionHooks",
         "visualNotes",
+        "visualPlan",
+        "missingVisuals",
         "riskNotes",
+        "valueScores",
+        "transferableMoves",
+        "doNotReuse",
         "reusableFormula",
         "rewriteBrief"
       ]

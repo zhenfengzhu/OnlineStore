@@ -58,6 +58,9 @@ export async function POST(request: Request) {
       analysis.summary,
       analysis.titleAnalysis,
       analysis.openingAnalysis,
+      analysis.titleFormula,
+      analysis.openingHook,
+      analysis.bodyFormula,
       analysis.reusableFormula,
       analysis.rewriteBrief.targetAudience,
       analysis.rewriteBrief.contentAngle
@@ -67,7 +70,12 @@ export async function POST(request: Request) {
       analysis.emotionTriggers,
       analysis.interactionHooks,
       analysis.visualNotes,
+      analysis.visualPlan,
+      analysis.missingVisuals,
       analysis.riskNotes,
+      analysis.valueScores,
+      analysis.transferableMoves,
+      analysis.doNotReuse,
       analysis.rewriteBrief.replaceableVariables,
       analysis.rewriteBrief.forbiddenRisks
     ].some((items) => items.length > 0);

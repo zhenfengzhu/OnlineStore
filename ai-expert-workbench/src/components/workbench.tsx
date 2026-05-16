@@ -14,12 +14,12 @@ import {
   MessageSquare,
   MessageSquareQuote,
   PanelsTopLeft,
+  PlayCircle,
   Settings,
   Smartphone,
   Sparkles,
   Star,
   Trash2,
-  Video,
   WandSparkles,
   Zap,
   Check,
@@ -105,12 +105,6 @@ const workflowOptions: Array<{ id: WorkflowType; label: string; description: str
     icon: CalendarDays
   },
   {
-    id: "video_scripts",
-    label: "短视频脚本",
-    description: "钩子、分镜、口播和结尾引导",
-    icon: Video
-  },
-  {
     id: "inspiration_rewrite",
     label: "爆款反推",
     description: "拆解并迁移爆文公式",
@@ -145,6 +139,13 @@ const generationProgressSteps = [
   }
 ];
 
+const chatQuickPrompts = [
+  "帮我判断这篇笔记哪里像硬广",
+  "给我 5 个更像小红书的标题",
+  "帮我优化前三行开头",
+  "检查这篇内容发布前有什么风险"
+];
+
 const defaultBrief: StructuredBrief = {
   topic: "",
   productName: "",
@@ -166,13 +167,19 @@ const defaultBrief: StructuredBrief = {
 };
 
 const contentGoals = ["拉新曝光", "种草收藏", "评论互动", "引导进店", "提升转化"];
-const contentForms = ["图文笔记", "短视频脚本", "内容日历", "测评", "清单", "避坑"];
+const contentForms = ["图文笔记", "内容日历", "测评", "清单", "避坑"];
 const calendarStatuses = ["planned", "drafting", "ready", "published"];
 const statusLabels: Record<string, string> = {
   planned: "待规划",
   drafting: "撰写中",
   ready: "待发布",
   published: "已发布"
+};
+const statusTone: Record<string, string> = {
+  planned: "border-muted-foreground/20 text-muted-foreground",
+  drafting: "border-blue-500/30 text-blue-700",
+  ready: "border-orange-500/30 text-orange-700",
+  published: "border-emerald-500/30 text-emerald-700"
 };
 
 function formatDate(value: string) {
@@ -332,6 +339,90 @@ function getExtractionPreviewImages(extraction: XiaohongshuExtractionView) {
   );
 }
 
+const extractionRiskKeywords = [
+  "绝对",
+  "第一",
+  "最",
+  "永久",
+  "保证",
+  "包治",
+  "治愈",
+  "无敌",
+  "必买",
+  "闭眼入",
+  "全网最低",
+  "百分百"
+];
+
+function getExtractionTagList(extraction: XiaohongshuExtractionView) {
+  const manualTags = (extraction.tags ?? "")
+    .split(/[\s,，#]+/)
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+
+  return Array.from(new Set([...manualTags, ...(extraction.topics ?? [])]));
+}
+
+function getDetectedRiskKeywords(extraction: XiaohongshuExtractionView) {
+  const content = `${extraction.title}\n${extraction.text}`;
+  return extractionRiskKeywords.filter((keyword) => content.includes(keyword));
+}
+
+function getAverageValueScore(extraction: XiaohongshuExtractionView) {
+  const scores = extraction.analysis?.valueScores ?? [];
+  if (scores.length === 0) return null;
+  return Math.round(scores.reduce((total, item) => total + item.score, 0) / scores.length);
+}
+
+function getScoreTone(score: number) {
+  if (score >= 85) return "text-emerald-600";
+  if (score >= 70) return "text-primary";
+  if (score >= 55) return "text-orange-600";
+  return "text-destructive";
+}
+
+function getFrequentItems(items: string[], limit = 6) {
+  const counts = new Map<string, number>();
+  for (const item of items.map((value) => value.trim()).filter(Boolean)) {
+    counts.set(item, (counts.get(item) ?? 0) + 1);
+  }
+
+  return Array.from(counts.entries())
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "zh-CN"))
+    .slice(0, limit)
+    .map(([label, count]) => ({ label, count }));
+}
+
+function buildExtractionComparison(extractions: XiaohongshuExtractionView[]) {
+  const analyzed = extractions.filter((item) => item.analysis);
+  const tags = getFrequentItems(extractions.flatMap(getExtractionTagList));
+  const hookTypes = getFrequentItems(analyzed.map((item) => item.analysis?.hookType ?? ""));
+  const formulas = getFrequentItems(analyzed.map((item) => item.analysis?.titleFormula || item.analysis?.reusableFormula || ""));
+  const sellingPoints = getFrequentItems(analyzed.flatMap((item) => item.analysis?.sellingPoints ?? []));
+  const visualMoves = getFrequentItems(analyzed.flatMap((item) => item.analysis?.visualNotes ?? []));
+  const risks = getFrequentItems([
+    ...extractions.flatMap(getDetectedRiskKeywords),
+    ...analyzed.flatMap((item) => item.analysis?.riskNotes ?? [])
+  ]);
+
+  return {
+    analyzedCount: analyzed.length,
+    tags,
+    hookTypes,
+    formulas,
+    sellingPoints,
+    visualMoves,
+    risks,
+    averageScore: (() => {
+      const scores = analyzed
+        .map(getAverageValueScore)
+        .filter((score): score is number => typeof score === "number");
+      if (scores.length === 0) return null;
+      return Math.round(scores.reduce((total, score) => total + score, 0) / scores.length);
+    })()
+  };
+}
+
 function getXiaohongshuTitleUnits(title: string) {
   return Array.from(title).reduce((total, char) => total + (/^[\x00-\x7F]$/.test(char) ? 0.5 : 1), 0);
 }
@@ -410,12 +501,30 @@ function extractionToMarkdown(extraction: XiaohongshuExtractionView) {
     analysis ? "## 爆文拆解" : "",
     analysis ? `摘要：${analysis.summary}` : "",
     analysis ? `钩子类型：${analysis.hookType}` : "",
+    analysis?.valueScores?.length ? `参考价值：${getAverageValueScore(extraction) ?? "-"}分` : "",
+    analysis?.titleFormula ? `标题公式：${analysis.titleFormula}` : "",
+    analysis?.openingHook ? `开头钩子：${analysis.openingHook}` : "",
+    analysis?.bodyFormula ? `正文公式：${analysis.bodyFormula}` : "",
     analysis ? `可迁移公式：${analysis.reusableFormula}` : "",
     analysis ? "" : "",
     analysis ? "### 内容结构" : "",
     ...((analysis?.contentStructure ?? []).map((item, index) =>
       `${index + 1}. ${item.section}｜${item.purpose}｜可复用动作：${item.reusableMove}`
     )),
+    analysis ? "" : "",
+    analysis?.visualPlan?.length ? "### 图片顺序策略" : "",
+    ...((analysis?.visualPlan ?? []).map((item) =>
+      `${item.imageIndex}. ${item.role}｜${item.creatorAction}`
+    )),
+    analysis?.missingVisuals?.length ? "" : "",
+    analysis?.missingVisuals?.length ? "### 缺图提醒" : "",
+    ...((analysis?.missingVisuals ?? []).map((item) => `- ${item}`)),
+    analysis ? "" : "",
+    analysis?.transferableMoves?.length ? "### 可复用动作" : "",
+    ...((analysis?.transferableMoves ?? []).map((item) => `- ${item}`)),
+    analysis?.doNotReuse?.length ? "" : "",
+    analysis?.doNotReuse?.length ? "### 不建议照搬" : "",
+    ...((analysis?.doNotReuse ?? []).map((item) => `- ${item}`)),
     analysis ? "" : "",
     analysis ? "### 仿写 Brief" : "",
     analysis ? `目标人群：${analysis.rewriteBrief.targetAudience}` : "",
@@ -509,6 +618,41 @@ function calendarToCsv(items: CalendarItemView[]) {
   ].join("\n");
 }
 
+function sortCalendarItems(items: CalendarItemView[]) {
+  return items.slice().sort((a, b) => a.day - b.day || a.createdAt.localeCompare(b.createdAt));
+}
+
+function getCalendarSummary(items: CalendarItemView[]) {
+  const sorted = sortCalendarItems(items);
+  const pending = sorted.filter((item) => item.status !== "published");
+  const today = pending[0] ?? sorted[0] ?? null;
+  const tomorrow = today ? sorted.find((item) => item.day > today.day && item.status !== "published") ?? null : null;
+  const statusCounts = Object.fromEntries(calendarStatuses.map((status) => [status, items.filter((item) => item.status === status).length]));
+  const readyCount = items.filter((item) => item.status === "ready").length;
+  const publishedCount = items.filter((item) => item.status === "published").length;
+  const unboundCount = items.filter((item) => !item.assetTitle).length;
+
+  return {
+    sorted,
+    today,
+    tomorrow,
+    statusCounts,
+    readyCount,
+    publishedCount,
+    unboundCount
+  };
+}
+
+function groupCalendarWeeks(items: CalendarItemView[]) {
+  const groups = new Map<number, CalendarItemView[]>();
+  for (const item of sortCalendarItems(items)) {
+    const week = Math.ceil(item.day / 7);
+    groups.set(week, [...(groups.get(week) ?? []), item]);
+  }
+
+  return Array.from(groups.entries()).map(([week, weekItems]) => ({ week, items: weekItems }));
+}
+
 const defaultAccountProfile: AccountProfile = {
   accountName: "",
   positioning: "",
@@ -550,6 +694,62 @@ function buildPrompt(goal: string, brief: StructuredBrief, profile: AccountProfi
     `禁用表达：${brief.forbiddenWords || "无"}`,
     `补充说明：${brief.additionalNotes || "无"}`
   ].join("\n");
+}
+
+function getBriefReadiness(brief: StructuredBrief, referenceContent: string) {
+  const items = [
+    {
+      label: "主题明确",
+      done: Boolean(brief.topic.trim()),
+      detail: brief.topic.trim() ? "已填写内容主题" : "先写清楚这篇内容具体讲什么"
+    },
+    {
+      label: "人群清楚",
+      done: Boolean(brief.targetAudience.trim()),
+      detail: brief.targetAudience.trim() ? "已填写目标人群" : "补充给谁看，避免文案太泛"
+    },
+    {
+      label: "卖点具体",
+      done: Boolean(brief.coreSellingPoint.trim()),
+      detail: brief.coreSellingPoint.trim() ? "已填写核心卖点" : "写一个主卖点，不要平均铺开"
+    },
+    {
+      label: "证据充分",
+      done: Boolean(brief.proofPoints.trim() || brief.useScene.trim()),
+      detail: brief.proofPoints.trim() || brief.useScene.trim() ? "已有场景或证据" : "补充使用场景、时间、反馈或细节"
+    },
+    {
+      label: "参考素材",
+      done: Boolean(referenceContent.trim()),
+      detail: referenceContent.trim() ? "已加入参考爆文" : "可选：选择一篇提取素材作为参考"
+    }
+  ];
+  const doneCount = items.filter((item) => item.done).length;
+  const score = Math.round((doneCount / items.length) * 100);
+
+  return {
+    items,
+    doneCount,
+    score,
+    label: score >= 80 ? "适合生成" : score >= 60 ? "可生成，建议补证据" : "建议先补充关键 brief"
+  };
+}
+
+function buildExtractionReference(extraction: XiaohongshuExtractionView) {
+  return [
+    `参考标题：${extraction.title}`,
+    extraction.analysis?.titleFormula ? `标题公式：${extraction.analysis.titleFormula}` : "",
+    extraction.analysis?.openingHook ? `开头钩子：${extraction.analysis.openingHook}` : "",
+    extraction.analysis?.bodyFormula ? `正文公式：${extraction.analysis.bodyFormula}` : "",
+    extraction.analysis ? `可复用公式：${extraction.analysis.reusableFormula}` : "",
+    extraction.analysis?.rewriteBrief?.contentAngle ? `内容角度：${extraction.analysis.rewriteBrief.contentAngle}` : "",
+    extraction.analysis?.transferableMoves?.length ? `可复用动作：${extraction.analysis.transferableMoves.join("；")}` : "",
+    extraction.analysis?.doNotReuse?.length ? `不要照搬：${extraction.analysis.doNotReuse.join("；")}` : "",
+    extraction.analysis?.visualNotes?.length ? `图片策略：${extraction.analysis.visualNotes.join("；")}` : "",
+    "",
+    "参考正文：",
+    extraction.text
+  ].filter(Boolean).join("\n");
 }
 
 function Stat({ label, value }: { label: string; value: number }) {
@@ -1573,6 +1773,7 @@ function XiaohongshuPublishAssistant({
 
 export function Workbench() {
   const generationProgressTimerRef = useRef<number | null>(null);
+  const chatMessagesEndRef = useRef<HTMLDivElement | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>("generate");
   const [assets, setAssets] = useState<ContentAssetView[]>([]);
   const [xiaohongshuExtractions, setXiaohongshuExtractions] = useState<XiaohongshuExtractionView[]>([]);
@@ -1580,7 +1781,11 @@ export function Workbench() {
   const [chatSessions, setChatSessions] = useState<ChatSessionView[]>([]);
   const [activeChatSessionId, setActiveChatSessionId] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState("");
+  const [pendingChatMessage, setPendingChatMessage] = useState<{ content: string; createdAt: string } | null>(null);
   const [isChatSending, setIsChatSending] = useState(false);
+  const [calendarViewMode, setCalendarViewMode] = useState<"list" | "week" | "month">("list");
+  const [calendarStatusFilter, setCalendarStatusFilter] = useState("all");
+  const [selectedCalendarSourceId, setSelectedCalendarSourceId] = useState<string | null>(null);
   const [workflowType, setWorkflowType] = useState<WorkflowType>("thirty_notes");
   const [brief, setBrief] = useState<StructuredBrief>(defaultBrief);
   const [contentGoal, setContentGoal] = useState(contentGoals[1]);
@@ -1637,11 +1842,14 @@ export function Workbench() {
   const [importJson, setImportJson] = useState("");
   const [isComparisonOpen, setIsComparisonOpen] = useState(false);
   const [referenceContent, setReferenceContent] = useState("");
+  const [selectedReferenceExtractionId, setSelectedReferenceExtractionId] = useState("");
+  const [selectedTitleDirection, setSelectedTitleDirection] = useState("");
   const [xiaohongshuUrl, setXiaohongshuUrl] = useState("");
   const [isExtractingXiaohongshu, setIsExtractingXiaohongshu] = useState(false);
   const [xiaohongshuExtracted, setXiaohongshuExtracted] = useState<XiaohongshuExtractionView | null>(null);
   const [xiaohongshuSearchTerm, setXiaohongshuSearchTerm] = useState("");
   const [xiaohongshuTagFilter, setXiaohongshuTagFilter] = useState("all");
+  const [selectedExtractionCompareIds, setSelectedExtractionCompareIds] = useState<string[]>([]);
   const [showFavoriteExtractionsOnly, setShowFavoriteExtractionsOnly] = useState(false);
   const [analyzingExtractionId, setAnalyzingExtractionId] = useState<string | null>(null);
 
@@ -1673,6 +1881,11 @@ export function Workbench() {
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (activeTab !== "chat") return;
+    chatMessagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [activeTab, activeChatSessionId, chatSessions, pendingChatMessage, isChatSending]);
 
   async function loadAll() {
     setIsBootstrapping(true);
@@ -1855,6 +2068,55 @@ export function Workbench() {
     setBrief(template.brief);
   }
 
+  function applyReferenceExtraction(extractionId: string) {
+    setSelectedReferenceExtractionId(extractionId);
+    const extraction = xiaohongshuExtractions.find((item) => item.id === extractionId);
+    if (extraction) {
+      setReferenceContent(buildExtractionReference(extraction));
+    }
+  }
+
+  function applyExtractionToBrief(extraction: XiaohongshuExtractionView) {
+    const analysis = extraction.analysis;
+    setSelectedReferenceExtractionId(extraction.id);
+    setReferenceContent(buildExtractionReference(extraction));
+    setSelectedTitleDirection(analysis?.titleFormula || extraction.title);
+    setBrief((current) => ({
+      ...current,
+      topic: current.topic || analysis?.rewriteBrief?.contentAngle || extraction.title,
+      targetAudience: current.targetAudience || analysis?.rewriteBrief?.targetAudience || "",
+      contentForm: current.contentForm || "图文笔记",
+      coreSellingPoint: current.coreSellingPoint || (analysis?.sellingPoints ?? []).slice(0, 3).join("；"),
+      userPainPoint: current.userPainPoint || (analysis?.emotionTriggers ?? []).slice(0, 2).join("；"),
+      competitorDifference: current.competitorDifference || analysis?.reusableFormula || "",
+      proofPoints: current.proofPoints || (analysis?.contentStructure ?? []).map((item) => item.originalSignal).filter(Boolean).slice(0, 3).join("；"),
+      useScene: current.useScene || analysis?.rewriteBrief?.productFit || "",
+      emotionOrPainPoint: current.emotionOrPainPoint || analysis?.rewriteBrief?.emotionHook || "",
+      mustMention: current.mustMention || (analysis?.transferableMoves ?? []).slice(0, 3).join("；"),
+      forbiddenWords: current.forbiddenWords || (analysis?.doNotReuse ?? analysis?.rewriteBrief?.forbiddenRisks ?? []).join("；"),
+      additionalNotes: current.additionalNotes || [
+        analysis?.bodyFormula ? `正文结构：${analysis.bodyFormula}` : "",
+        (analysis?.visualPlan ?? []).length ? `图片顺序：${analysis?.visualPlan.map((item) => `${item.imageIndex}.${item.role}`).join("；")}` : "",
+        (analysis?.missingVisuals ?? []).length ? `补图提醒：${analysis?.missingVisuals.join("；")}` : ""
+      ].filter(Boolean).join("\n")
+    }));
+    setActiveTab("generate");
+    setMessage("已把这条提取结果转为 AI 生成页的创作 Brief。");
+  }
+
+  function toggleExtractionCompare(id: string) {
+    setSelectedExtractionCompareIds((current) =>
+      current.includes(id)
+        ? current.filter((item) => item !== id)
+        : [...current, id].slice(-10)
+    );
+  }
+
+  function useTitleAsDirection(title: string) {
+    setSelectedTitleDirection(title);
+    setMessage(`已设为正文生成方向：${title}`);
+  }
+
   function updateAccountProfile<K extends keyof AccountProfile>(field: K, value: AccountProfile[K]) {
     setAccountProfile((current) => ({ ...current, [field]: value }));
   }
@@ -2002,6 +2264,8 @@ export function Workbench() {
       if (!response.ok) throw new Error(data.error ?? "删除失败。");
 
       setXiaohongshuExtractions((current) => current.filter((item) => item.id !== id));
+      setSelectedExtractionCompareIds((current) => current.filter((item) => item !== id));
+      if (xiaohongshuExtracted?.id === id) setXiaohongshuExtracted(null);
       setMessage("提取记录已删除。");
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : "删除失败。");
@@ -2065,6 +2329,11 @@ export function Workbench() {
     setError(null);
     setMessage(null);
     setGenerationProgressIndex(0);
+    const prompt = [
+      selectedTitleDirection ? `优先标题方向：${selectedTitleDirection}` : "",
+      referenceContent.trim() ? `参考爆文：\n${referenceContent}` : "",
+      `当前创作需求：\n${buildPrompt(contentGoal, brief, accountProfile)}`
+    ].filter(Boolean).join("\n\n");
 
     if (generationProgressTimerRef.current) {
       window.clearInterval(generationProgressTimerRef.current);
@@ -2079,9 +2348,7 @@ export function Workbench() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           type: workflowType,
-          userInput: referenceContent.trim() 
-            ? `参考爆文：\n${referenceContent}\n\n当前创作需求：\n${buildPrompt(contentGoal, brief, accountProfile)}`
-            : buildPrompt(contentGoal, brief, accountProfile)
+          userInput: prompt
         })
       });
 
@@ -2098,11 +2365,26 @@ export function Workbench() {
       setGenerationProgressIndex(generationProgressSteps.length - 1);
       setLastOutput(data.output);
       setPostGenerateAssetIds(data.persistence?.assetIds ?? []);
+      if (selectedCalendarSourceId && data.output.notes[0]?.title) {
+        const bindResponse = await fetch("/api/calendar", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: selectedCalendarSourceId,
+            status: "ready",
+            assetTitle: data.output.notes[0].title
+          })
+        });
+        const bindData = (await bindResponse.json()) as { item?: CalendarItemView; error?: string };
+        if (!bindResponse.ok || !bindData.item) {
+          throw new Error(bindData.error ?? "内容已生成，但绑定日历失败。");
+        }
+        setSelectedCalendarSourceId(null);
+      }
       setMessage(
         `生成完成：新增 ${data.persistence?.assetCount ?? 0} 条内容资产，${data.persistence?.calendarCount ?? 0} 条日历。`
       );
       await loadAll();
-      setActiveTab(workflowType === "content_calendar" ? "calendar" : "assets");
     } catch (workflowError) {
       setError(workflowError instanceof Error ? workflowError.message : "生成失败。");
     } finally {
@@ -2283,13 +2565,13 @@ export function Workbench() {
     }
   }
 
-  async function updateCalendarItem(item: CalendarItemView, status: string) {
+  async function updateCalendarItem(item: CalendarItemView, patch: Partial<Pick<CalendarItemView, "status" | "assetTitle" | "goal">>) {
     setError(null);
     try {
       const response = await fetch("/api/calendar", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: item.id, status })
+        body: JSON.stringify({ id: item.id, ...patch })
       });
       const data = (await response.json()) as { item?: CalendarItemView; error?: string };
       if (!response.ok || !data.item) {
@@ -2453,6 +2735,29 @@ export function Workbench() {
     }
   }
 
+  function startCalendarNoteGeneration(item: CalendarItemView) {
+    setWorkflowType("thirty_notes");
+    setContentGoal(item.goal || "种草收藏");
+    setSelectedCalendarSourceId(item.id);
+    setBrief((current) => ({
+      ...current,
+      topic: item.topic || current.topic,
+      contentForm: "图文笔记",
+      coreSellingPoint: current.coreSellingPoint || item.angle,
+      useScene: current.useScene || item.format,
+      emotionOrPainPoint: current.emotionOrPainPoint || item.goal || "",
+      additionalNotes: [
+        current.additionalNotes,
+        `来自内容日历：Day ${item.day}`,
+        `日历角度：${item.angle}`,
+        `建议形式：${item.format}`,
+        item.assetTitle ? `已有关联标题：${item.assetTitle}` : ""
+      ].filter(Boolean).join("\n")
+    }));
+    setActiveTab("generate");
+    setMessage(`已载入 Day ${item.day}，点击“开始生成”即可产出这条笔记。`);
+  }
+
   async function deleteChatSession(id: string) {
     if (!confirm("确认删除这段聊天记录？该操作不可恢复。")) return;
 
@@ -2479,6 +2784,8 @@ export function Workbench() {
     setIsChatSending(true);
     setError(null);
     setMessage(null);
+    setChatInput("");
+    setPendingChatMessage({ content, createdAt: new Date().toISOString() });
 
     try {
       const response = await fetch("/api/chat/messages", {
@@ -2497,10 +2804,11 @@ export function Workbench() {
         return [data.session!, ...others];
       });
       setActiveChatSessionId(data.session.id);
-      setChatInput("");
     } catch (chatError) {
+      setChatInput(content);
       setError(chatError instanceof Error ? chatError.message : "AI 回复失败。");
     } finally {
+      setPendingChatMessage(null);
       setIsChatSending(false);
     }
   }
@@ -2574,6 +2882,10 @@ export function Workbench() {
   };
 
   const assetTrees = getFilteredAssetTrees();
+  const sortedCalendarItems = sortCalendarItems(calendarItems);
+  const visibleCalendarItems = sortedCalendarItems.filter((item) => calendarStatusFilter === "all" || item.status === calendarStatusFilter);
+  const calendarSummary = getCalendarSummary(calendarItems);
+  const calendarWeeks = groupCalendarWeeks(visibleCalendarItems);
   const xiaohongshuTagOptions = Array.from(
     new Set(
       xiaohongshuExtractions.flatMap((item) =>
@@ -2593,12 +2905,19 @@ export function Workbench() {
     const matchesFavorite = !showFavoriteExtractionsOnly || item.isFavorite;
     return matchesKeyword && matchesTag && matchesFavorite;
   });
+  const selectedComparisonExtractions = selectedExtractionCompareIds
+    .map((id) => xiaohongshuExtractions.find((item) => item.id === id))
+    .filter((item): item is XiaohongshuExtractionView => Boolean(item));
+  const extractionComparison = selectedComparisonExtractions.length >= 2
+    ? buildExtractionComparison(selectedComparisonExtractions)
+    : null;
   const normalizedTitleWorkshop = normalizeTitleWorkshopForClient(titleWorkshop);
   const titleWorkshopTitles = normalizedTitleWorkshop?.titles ?? [];
   const lastOutputNotes = lastOutput?.notes ?? [];
   const lastOutputCalendar = lastOutput?.calendar ?? [];
   const lastOutputScripts = lastOutput?.scripts ?? [];
   const lastOutputNextActions = lastOutput?.nextActions ?? [];
+  const briefReadiness = getBriefReadiness(brief, referenceContent);
   const activeChatSession = chatSessions.find((session) => session.id === activeChatSessionId) ?? chatSessions[0] ?? null;
   const postGenerateAssets = postGenerateAssetIds
     .map((id) => assets.find((asset) => asset.id === id))
@@ -2805,6 +3124,39 @@ export function Workbench() {
                     </div>
                   </div>
 
+                  <div className="rounded-xl border bg-muted/20 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-medium">生成前完整度</div>
+                        <p className="mt-1 text-xs text-muted-foreground">{briefReadiness.label}</p>
+                      </div>
+                      <Badge variant={briefReadiness.score >= 80 ? "default" : "outline"}>
+                        {briefReadiness.score}%
+                      </Badge>
+                    </div>
+                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-background">
+                      <div
+                        className="h-full rounded-full bg-primary transition-all"
+                        style={{ width: `${briefReadiness.score}%` }}
+                      />
+                    </div>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      {briefReadiness.items.map((item) => (
+                        <div key={item.label} className="flex gap-2 rounded-lg border bg-card p-2 text-xs">
+                          {item.done ? (
+                            <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" />
+                          ) : (
+                            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-orange-500" />
+                          )}
+                          <div className="min-w-0">
+                            <div className="font-medium">{item.label}</div>
+                            <div className="mt-0.5 text-muted-foreground">{item.detail}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
                   <div className="space-y-6">
                     <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-muted/20 p-3">
                       <div>
@@ -2900,6 +3252,18 @@ export function Workbench() {
                             placeholder="比如：新手养猫家庭"
                           />
                         </label>
+
+                        {briefMode === "quick" ? (
+                          <label className="space-y-1 text-sm">
+                            <span className="font-medium">真实素材 / 证据</span>
+                            <Textarea
+                              className="min-h-20"
+                              value={brief.proofPoints}
+                              onChange={(event) => updateBrief("proofPoints", event.target.value)}
+                              placeholder="比如：用了两周、每天陪玩 15 分钟、猫咪扑咬反应"
+                            />
+                          </label>
+                        ) : null}
                       </div>
 
                       <div className="grid gap-4 sm:grid-cols-2">
@@ -2990,28 +3354,28 @@ export function Workbench() {
                         />
                       </label>
 
-                      <div className="grid gap-4 sm:grid-cols-2">
-                        <label className="space-y-1 text-sm">
-                          <span className="font-medium">使用场景</span>
-                          <Textarea
-                            value={brief.useScene}
-                            onChange={(event) => updateBrief("useScene", event.target.value)}
-                            placeholder="比如：下班回家陪玩、周末在家消耗精力"
-                          />
-                        </label>
-
-                        <label className="space-y-1 text-sm">
-                          <span className="font-medium">情绪 / 痛点</span>
-                          <Textarea
-                            value={brief.emotionOrPainPoint}
-                            onChange={(event) => updateBrief("emotionOrPainPoint", event.target.value)}
-                            placeholder="比如：猫咪无聊拆家、新手养宠手忙脚乱、想给宠物最好的陪伴"
-                          />
-                        </label>
-                      </div>
-
                       {briefMode === "pro" ? (
                         <>
+                          <div className="grid gap-4 sm:grid-cols-2">
+                            <label className="space-y-1 text-sm">
+                              <span className="font-medium">使用场景</span>
+                              <Textarea
+                                value={brief.useScene}
+                                onChange={(event) => updateBrief("useScene", event.target.value)}
+                                placeholder="比如：下班回家陪玩、周末在家消耗精力"
+                              />
+                            </label>
+
+                            <label className="space-y-1 text-sm">
+                              <span className="font-medium">情绪 / 痛点</span>
+                              <Textarea
+                                value={brief.emotionOrPainPoint}
+                                onChange={(event) => updateBrief("emotionOrPainPoint", event.target.value)}
+                                placeholder="比如：猫咪无聊拆家、新手养宠手忙脚乱、想给宠物最好的陪伴"
+                              />
+                            </label>
+                          </div>
+
                           <div className="grid gap-4 sm:grid-cols-2">
                             <label className="space-y-1 text-sm">
                               <span className="font-medium">语气风格 <span className="text-xs font-normal text-muted-foreground">选填</span></span>
@@ -3051,11 +3415,31 @@ export function Workbench() {
                         参考爆文 (Inspiration)
                       </h3>
                       <label className="space-y-1 text-sm">
+                        <span className="font-medium text-orange-700">从图文提取选择</span>
+                        <select
+                          className="h-10 w-full rounded-md border border-orange-500/30 bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50"
+                          value={selectedReferenceExtractionId}
+                          onChange={(event) => applyReferenceExtraction(event.target.value)}
+                        >
+                          <option value="">不使用提取素材</option>
+                          {xiaohongshuExtractions.map((item) => (
+                            <option key={item.id} value={item.id}>
+                              {item.title}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="space-y-1 text-sm">
                         <span className="font-medium text-orange-700">粘贴参考内容 (可选)</span>
                         <Textarea
                           className="min-h-32 border-orange-500/30 focus-visible:ring-orange-500/50 bg-orange-500/5"
                           value={referenceContent}
-                          onChange={(event) => setReferenceContent(event.target.value)}
+                          onChange={(event) => {
+                            setReferenceContent(event.target.value);
+                            if (!event.target.value.trim()) {
+                              setSelectedReferenceExtractionId("");
+                            }
+                          }}
                           placeholder="粘贴你想要模仿的小红书爆款文案。AI 将自动分析其爆款公式并迁移到你的新内容中。"
                         />
                       </label>
@@ -3066,6 +3450,18 @@ export function Workbench() {
                     {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
                     {isLoading ? "生成中..." : "开始生成"}
                   </Button>
+
+                  {selectedTitleDirection ? (
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-primary/5 p-3 text-sm">
+                      <div className="min-w-0">
+                        <span className="font-medium">正文标题方向：</span>
+                        <span className="break-words text-muted-foreground [overflow-wrap:anywhere]">{selectedTitleDirection}</span>
+                      </div>
+                      <Button size="sm" variant="ghost" onClick={() => setSelectedTitleDirection("")}>
+                        清除
+                      </Button>
+                    </div>
+                  ) : null}
 
                   {isLoading ? (
                     <GenerationProgressPanel activeIndex={generationProgressIndex} />
@@ -3143,10 +3539,16 @@ export function Workbench() {
                               <div className="mt-2 text-sm font-medium">{title.text}</div>
                               {title.intent ? <div className="mt-1 text-xs text-muted-foreground">{title.intent}</div> : null}
                               <div className="mt-3">
+                                <div className="flex flex-wrap gap-2">
                                 <Button size="sm" variant="outline" onClick={() => copyText(title.text)}>
                                   <Clipboard className="h-4 w-4" />
                                   复制标题
                                 </Button>
+                                <Button size="sm" variant="secondary" onClick={() => useTitleAsDirection(title.text)}>
+                                  <Check className="h-4 w-4" />
+                                  设为正文方向
+                                </Button>
+                                </div>
                               </div>
                             </div>
                           ))}
@@ -3168,6 +3570,34 @@ export function Workbench() {
 
                     {lastOutput ? (
                       <>
+                      {primaryPostGenerateAsset ? (
+                        <div className="rounded-xl border border-primary/30 bg-primary/5 p-3">
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="min-w-0">
+                              <div className="text-sm font-medium">已生成：{primaryPostGenerateAsset.title}</div>
+                              <p className="mt-1 text-xs text-muted-foreground">结果已保存到资产库，但你可以先在这里继续确认和处理。</p>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              <Button size="sm" variant="outline" onClick={() => runPrePublishCheck(primaryPostGenerateAsset)}>
+                                <Gauge className="h-4 w-4" />
+                                体检
+                              </Button>
+                              <Button size="sm" variant="outline" onClick={() => generateAssetCover(primaryPostGenerateAsset)}>
+                                <ImageIcon className="h-4 w-4" />
+                                配图
+                              </Button>
+                              <Button size="sm" onClick={() => setPublishAsset(primaryPostGenerateAsset)}>
+                                <ExternalLink className="h-4 w-4" />
+                                发布
+                              </Button>
+                              <Button size="sm" variant="ghost" onClick={() => setActiveTab("assets")}>
+                                资产库
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      ) : null}
+
                       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
                         <Stat label="笔记" value={lastOutputNotes.length} />
                         <Stat label="日历" value={lastOutputCalendar.length} />
@@ -3353,10 +3783,108 @@ export function Workbench() {
                     </Button>
                   </div>
 
+                  <div className="rounded-xl border bg-muted/20 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <div className="text-sm font-medium">爆文对比</div>
+                        <p className="mt-1 text-xs text-muted-foreground">勾选 2-10 条提取记录，查看共性标签、标题套路、卖点和风险。</p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant="outline">已选 {selectedComparisonExtractions.length}</Badge>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={selectedComparisonExtractions.length === 0}
+                          onClick={() => setSelectedExtractionCompareIds([])}
+                        >
+                          清空
+                        </Button>
+                      </div>
+                    </div>
+                    {extractionComparison ? (
+                      <div className="mt-3 grid gap-3 lg:grid-cols-3">
+                        <div className="rounded-md border bg-card p-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="text-xs font-semibold text-muted-foreground">整体参考价值</div>
+                            {extractionComparison.averageScore !== null ? (
+                              <div className={cn("text-sm font-semibold", getScoreTone(extractionComparison.averageScore))}>
+                                {extractionComparison.averageScore}分
+                              </div>
+                            ) : (
+                              <Badge variant="outline">需先 AI拆解</Badge>
+                            )}
+                          </div>
+                          <div className="mt-2 text-xs text-muted-foreground">
+                            {extractionComparison.analyzedCount}/{selectedComparisonExtractions.length} 条已有拆解
+                          </div>
+                        </div>
+                        <div className="rounded-md border bg-card p-3">
+                          <div className="text-xs font-semibold text-muted-foreground">高频话题 / 标签</div>
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {extractionComparison.tags.length > 0
+                              ? extractionComparison.tags.map((item) => <Badge key={item.label} variant="secondary" className="text-[10px]">#{item.label} · {item.count}</Badge>)
+                              : <span className="text-xs text-muted-foreground">暂无标签共性</span>}
+                          </div>
+                        </div>
+                        <div className="rounded-md border bg-card p-3">
+                          <div className="text-xs font-semibold text-muted-foreground">高频钩子</div>
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {extractionComparison.hookTypes.length > 0
+                              ? extractionComparison.hookTypes.map((item) => <Badge key={item.label} variant="outline" className="text-[10px]">{item.label} · {item.count}</Badge>)
+                              : <span className="text-xs text-muted-foreground">勾选后点击 AI拆解 可看共性</span>}
+                          </div>
+                        </div>
+                        <div className="rounded-md border bg-card p-3 lg:col-span-3">
+                          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                            <div>
+                              <div className="text-xs font-semibold text-muted-foreground">标题公式</div>
+                              <ul className="mt-2 space-y-1 text-xs">
+                                {extractionComparison.formulas.length > 0
+                                  ? extractionComparison.formulas.slice(0, 3).map((item) => <li key={item.label} className="break-words [overflow-wrap:anywhere]">{item.label}</li>)
+                                  : <li className="text-muted-foreground">暂无</li>}
+                              </ul>
+                            </div>
+                            <div>
+                              <div className="text-xs font-semibold text-muted-foreground">共同卖点</div>
+                              <div className="mt-2 flex flex-wrap gap-1.5">
+                                {extractionComparison.sellingPoints.length > 0
+                                  ? extractionComparison.sellingPoints.map((item) => <Badge key={item.label} variant="secondary" className="text-[10px]">{item.label}</Badge>)
+                                  : <span className="text-xs text-muted-foreground">暂无</span>}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-xs font-semibold text-muted-foreground">图片策略共性</div>
+                              <ul className="mt-2 space-y-1 text-xs">
+                                {extractionComparison.visualMoves.length > 0
+                                  ? extractionComparison.visualMoves.slice(0, 3).map((item) => <li key={item.label} className="break-words [overflow-wrap:anywhere]">{item.label}</li>)
+                                  : <li className="text-muted-foreground">暂无</li>}
+                              </ul>
+                            </div>
+                            <div>
+                              <div className="text-xs font-semibold text-orange-700">风险共性</div>
+                              <div className="mt-2 flex flex-wrap gap-1.5">
+                                {extractionComparison.risks.length > 0
+                                  ? extractionComparison.risks.map((item) => <Badge key={item.label} variant="outline" className="border-orange-500/30 text-[10px] text-orange-700">{item.label}</Badge>)
+                                  : <span className="text-xs text-muted-foreground">暂无明显风险</span>}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="mt-3 rounded-md border border-dashed bg-card p-3 text-xs text-muted-foreground">
+                        先在下方勾选至少 2 条记录。已有 AI拆解 的记录会提供更准确的共性公式。
+                      </div>
+                    )}
+                  </div>
+
                   {xiaohongshuExtractions.length > 0 ? (
                     <div className="space-y-3">
                       {filteredXiaohongshuExtractions.map((item) => {
                         const previewImages = getExtractionPreviewImages(item);
+                        const detectedRiskKeywords = getDetectedRiskKeywords(item);
+                        const averageScore = getAverageValueScore(item);
+                        const isCompared = selectedExtractionCompareIds.includes(item.id);
                         return (
                           <div key={item.id} className="rounded-xl border bg-card p-4">
                             <div className="flex flex-col gap-3 sm:flex-row">
@@ -3373,7 +3901,26 @@ export function Workbench() {
                               <div className="min-w-0 flex-1">
                                 <div className="flex flex-wrap items-center justify-between gap-2">
                                   <div className="flex flex-wrap items-center gap-2">
+                                    <label className="flex cursor-pointer items-center gap-1 rounded-full border bg-background px-2 py-0.5 text-[10px] text-muted-foreground">
+                                      <input
+                                        type="checkbox"
+                                        className="h-3 w-3"
+                                        checked={isCompared}
+                                        onChange={() => toggleExtractionCompare(item.id)}
+                                      />
+                                      对比
+                                    </label>
                                     <Badge variant="outline">{previewImages.length} 图</Badge>
+                                    {averageScore !== null ? (
+                                      <Badge variant="secondary" className={cn("text-[10px]", getScoreTone(averageScore))}>
+                                        参考 {averageScore}分
+                                      </Badge>
+                                    ) : null}
+                                    {detectedRiskKeywords.length > 0 ? (
+                                      <Badge variant="outline" className="border-orange-500/30 text-[10px] text-orange-700">
+                                        风险词 {detectedRiskKeywords.length}
+                                      </Badge>
+                                    ) : null}
                                     {item.tags
                                       ? item.tags.split(/[\s,，#]+/).filter(Boolean).map((tag) => (
                                           <Badge key={tag} variant="secondary" className="text-[10px]">
@@ -3400,6 +3947,15 @@ export function Workbench() {
                                 <p className="mt-1 line-clamp-3 break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">
                                   {item.text || "未提取到正文。"}
                                 </p>
+                                {detectedRiskKeywords.length > 0 ? (
+                                  <div className="mt-2 flex flex-wrap gap-1.5">
+                                    {detectedRiskKeywords.map((keyword) => (
+                                      <Badge key={`${item.id}-risk-${keyword}`} variant="outline" className="border-orange-500/30 text-[10px] text-orange-700">
+                                        {keyword}
+                                      </Badge>
+                                    ))}
+                                  </div>
+                                ) : null}
                                 <label className="mt-3 flex min-w-0 items-center gap-2 rounded-md border bg-muted/20 px-2">
                                   <Tag className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                                   <input
@@ -3443,9 +3999,21 @@ export function Workbench() {
                                 <Smartphone className="h-3.5 w-3.5" />
                                 预览
                               </Button>
-                              <Button size="sm" variant="ghost" onClick={() => setReferenceContent(item.text)}>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => {
+                                  setSelectedReferenceExtractionId(item.id);
+                                  setReferenceContent(buildExtractionReference(item));
+                                  setMessage("已设为 AI 生成页参考素材。");
+                                }}
+                              >
                                 <WandSparkles className="h-3.5 w-3.5" />
                                 设为参考
+                              </Button>
+                              <Button size="sm" variant="ghost" onClick={() => applyExtractionToBrief(item)}>
+                                <Check className="h-3.5 w-3.5" />
+                                转Brief
                               </Button>
                               <Button
                                 size="sm"
@@ -3482,6 +4050,17 @@ export function Workbench() {
                                     <p className="mt-1 text-sm">{item.analysis.summary}</p>
                                   </div>
                                 ) : null}
+                                {(item.analysis.valueScores ?? []).length > 0 ? (
+                                  <div className="grid gap-2 sm:grid-cols-5">
+                                    {(item.analysis.valueScores ?? []).map((score) => (
+                                      <div key={`${item.id}-score-${score.name}`} className="rounded-md border bg-card p-2">
+                                        <div className="text-[10px] text-muted-foreground">{score.name}</div>
+                                        <div className={cn("mt-1 text-lg font-semibold", getScoreTone(score.score))}>{score.score}</div>
+                                        <div className="mt-1 line-clamp-2 text-[10px] text-muted-foreground">{score.reason}</div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : null}
                                 <div className="grid gap-3 sm:grid-cols-2">
                                   {item.analysis.titleAnalysis ? (
                                     <div className="rounded-md border bg-card p-3">
@@ -3496,6 +4075,28 @@ export function Workbench() {
                                     </div>
                                   ) : null}
                                 </div>
+                                {item.analysis.titleFormula || item.analysis.openingHook || item.analysis.bodyFormula ? (
+                                  <div className="grid gap-3 sm:grid-cols-3">
+                                    {item.analysis.titleFormula ? (
+                                      <div className="rounded-md border bg-card p-3">
+                                        <div className="text-xs font-semibold text-muted-foreground">标题公式</div>
+                                        <p className="mt-1 text-xs leading-relaxed">{item.analysis.titleFormula}</p>
+                                      </div>
+                                    ) : null}
+                                    {item.analysis.openingHook ? (
+                                      <div className="rounded-md border bg-card p-3">
+                                        <div className="text-xs font-semibold text-muted-foreground">前三行钩子</div>
+                                        <p className="mt-1 text-xs leading-relaxed">{item.analysis.openingHook}</p>
+                                      </div>
+                                    ) : null}
+                                    {item.analysis.bodyFormula ? (
+                                      <div className="rounded-md border bg-card p-3">
+                                        <div className="text-xs font-semibold text-muted-foreground">正文公式</div>
+                                        <p className="mt-1 text-xs leading-relaxed">{item.analysis.bodyFormula}</p>
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                ) : null}
                                 {(item.analysis.contentStructure ?? []).length > 0 ? (
                                   <div>
                                     <div className="text-xs font-semibold text-muted-foreground">内容结构</div>
@@ -3515,6 +4116,55 @@ export function Workbench() {
                                   <div className="rounded-md border border-primary/20 bg-primary/5 p-3">
                                     <div className="text-xs font-semibold text-primary">可迁移公式</div>
                                     <p className="mt-1 text-sm">{item.analysis.reusableFormula}</p>
+                                  </div>
+                                ) : null}
+                                {(item.analysis.transferableMoves ?? []).length > 0 || (item.analysis.doNotReuse ?? []).length > 0 ? (
+                                  <div className="grid gap-3 sm:grid-cols-2">
+                                    {(item.analysis.transferableMoves ?? []).length > 0 ? (
+                                      <div className="rounded-md border bg-card p-3">
+                                        <div className="text-xs font-semibold text-muted-foreground">适合复用</div>
+                                        <ul className="mt-2 list-disc space-y-1 pl-4 text-xs">
+                                          {(item.analysis.transferableMoves ?? []).map((move) => (
+                                            <li key={move}>{move}</li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    ) : null}
+                                    {(item.analysis.doNotReuse ?? []).length > 0 ? (
+                                      <div className="rounded-md border border-orange-500/20 bg-orange-500/5 p-3">
+                                        <div className="text-xs font-semibold text-orange-700">不建议照搬</div>
+                                        <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-orange-900">
+                                          {(item.analysis.doNotReuse ?? []).map((move) => (
+                                            <li key={move}>{move}</li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                ) : null}
+                                {(item.analysis.visualPlan ?? []).length > 0 || (item.analysis.missingVisuals ?? []).length > 0 ? (
+                                  <div className="rounded-md border bg-card p-3">
+                                    <div className="text-xs font-semibold text-muted-foreground">图片顺序策略</div>
+                                    {(item.analysis.visualPlan ?? []).length > 0 ? (
+                                      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                                        {(item.analysis.visualPlan ?? []).map((visual) => (
+                                          <div key={`${item.id}-visual-${visual.imageIndex}-${visual.role}`} className="rounded-md border bg-muted/20 p-2 text-xs">
+                                            <div className="font-medium">第 {visual.imageIndex} 张：{visual.role}</div>
+                                            <div className="mt-1 text-muted-foreground">{visual.creatorAction}</div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ) : null}
+                                    {(item.analysis.missingVisuals ?? []).length > 0 ? (
+                                      <div className="mt-3">
+                                        <div className="text-xs font-semibold text-orange-700">缺图提醒</div>
+                                        <div className="mt-2 flex flex-wrap gap-1.5">
+                                          {(item.analysis.missingVisuals ?? []).map((visual) => (
+                                            <Badge key={visual} variant="outline" className="border-orange-500/30 text-[10px] text-orange-700">{visual}</Badge>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    ) : null}
                                   </div>
                                 ) : null}
                                 <div className="grid gap-3 sm:grid-cols-2">
@@ -3539,6 +4189,30 @@ export function Workbench() {
                                     </div>
                                   ) : null}
                                 </div>
+                                {(item.analysis.interactionHooks ?? []).length > 0 || (item.analysis.visualNotes ?? []).length > 0 ? (
+                                  <div className="grid gap-3 sm:grid-cols-2">
+                                    {(item.analysis.interactionHooks ?? []).length > 0 ? (
+                                      <div className="rounded-md border bg-card p-3">
+                                        <div className="text-xs font-semibold text-muted-foreground">互动设计</div>
+                                        <ul className="mt-2 list-disc space-y-1 pl-4 text-xs">
+                                          {(item.analysis.interactionHooks ?? []).map((hook) => (
+                                            <li key={hook}>{hook}</li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    ) : null}
+                                    {(item.analysis.visualNotes ?? []).length > 0 ? (
+                                      <div className="rounded-md border bg-card p-3">
+                                        <div className="text-xs font-semibold text-muted-foreground">图片策略判断</div>
+                                        <ul className="mt-2 list-disc space-y-1 pl-4 text-xs">
+                                          {(item.analysis.visualNotes ?? []).map((note) => (
+                                            <li key={note}>{note}</li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                ) : null}
                                 {item.analysis.rewriteBrief?.targetAudience ||
                                 item.analysis.rewriteBrief?.contentAngle ||
                                 item.analysis.rewriteBrief?.emotionHook ||
@@ -3593,91 +4267,259 @@ export function Workbench() {
           ) : null}
 
           {!isBootstrapping && activeTab === "calendar" ? (
-            <Card>
-              <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <CalendarDays className="h-4 w-4" />
-                    内容日历
-                  </CardTitle>
-                  <CardDescription>保留选题、形式、角度和状态，方便管理创作节奏。</CardDescription>
-                </div>
-                <Button
-                  variant="outline"
-                  disabled={calendarItems.length === 0}
-                  onClick={() => downloadFile("content-calendar.csv", calendarToCsv(calendarItems), "text/csv")}
-                >
-                  <Download className="h-4 w-4" />
-                  导出 CSV
-                </Button>
-              </CardHeader>
-              <CardContent>
-                {calendarItems.length > 0 ? (
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full text-sm">
-                      <thead>
-                        <tr className="border-b text-left text-muted-foreground">
-                          <th className="py-3 pr-3 font-medium">Day</th>
-                          <th className="py-3 pr-3 font-medium">内容</th>
-                          <th className="py-3 pr-3 font-medium">形式</th>
-                          <th className="py-3 pr-3 font-medium">目标</th>
-                          <th className="py-3 pr-3 font-medium">状态</th>
-                          <th className="py-3 pr-3 font-medium">操作</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {calendarItems.map((item) => (
-                          <tr key={item.id} className="border-b align-top">
-                            <td className="py-3 pr-3">Day {item.day}</td>
-                            <td className="py-3 pr-3">
-                              <div className="font-medium">{item.topic}</div>
-                              <div className="mt-1 text-xs text-muted-foreground">{item.angle}</div>
-                              <div className="mt-1 text-xs text-muted-foreground">{item.assetTitle ?? "-"}</div>
-                            </td>
-                            <td className="py-3 pr-3">{item.format}</td>
-                            <td className="py-3 pr-3">{item.goal ?? "-"}</td>
-                            <td className="py-3 pr-3">
-                              <select
-                                className="h-9 rounded-md border bg-card px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                value={item.status}
-                                onChange={(event) => updateCalendarItem(item, event.target.value)}
-                              >
-                                {calendarStatuses.map((status) => (
-                                  <option key={status} value={status}>
-                                    {statusLabels[status]}
-                                  </option>
-                                ))}
-                              </select>
-                            </td>
-                            <td className="py-3 pr-3">
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className="h-9 w-9 text-destructive hover:bg-destructive/10"
-                                onClick={() => deleteItem("calendar", item.id)}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+            <div className="space-y-4">
+              <Card>
+                <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <CalendarDays className="h-4 w-4" />
+                      内容日历
+                    </CardTitle>
+                    <CardDescription>按排期推进选题、生成正文、绑定资产和发布状态。</CardDescription>
                   </div>
-                ) : (
-                  <EmptyState
-                    title="还没有内容日历"
-                    description="先在 AI 生成里做一版 30 天内容日历，这里就会自动承接下来。"
-                    action={
-                      <Button onClick={() => setActiveTab("generate")}>
-                        <Sparkles className="h-4 w-4" />
-                        去生成日历
-                      </Button>
-                    }
-                  />
-                )}
-              </CardContent>
-            </Card>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant="outline"
+                      disabled={calendarItems.length === 0}
+                      onClick={() => downloadFile("content-calendar.csv", calendarToCsv(calendarItems), "text/csv")}
+                    >
+                      <Download className="h-4 w-4" />
+                      导出 CSV
+                    </Button>
+                    <Button variant="secondary" onClick={() => setActiveTab("generate")}>
+                      <Sparkles className="h-4 w-4" />
+                      生成新日历
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {calendarItems.length > 0 ? (
+                    <>
+                      <div className="grid gap-3 md:grid-cols-4">
+                        {calendarStatuses.map((status) => (
+                          <button
+                            key={status}
+                            type="button"
+                            className={cn(
+                              "rounded-xl border bg-card p-3 text-left transition-colors hover:bg-accent",
+                              calendarStatusFilter === status && "border-primary bg-primary/5"
+                            )}
+                            onClick={() => setCalendarStatusFilter(calendarStatusFilter === status ? "all" : status)}
+                          >
+                            <div className="text-xs text-muted-foreground">{statusLabels[status]}</div>
+                            <div className="mt-1 text-2xl font-semibold">{calendarSummary.statusCounts[status] ?? 0}</div>
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="grid gap-3 lg:grid-cols-[1.2fr_0.8fr]">
+                        <div className="rounded-xl border bg-muted/20 p-4">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                              <div className="text-sm font-medium">今日待办</div>
+                              <p className="mt-1 text-xs text-muted-foreground">按 Day 顺序取下一条未发布内容。</p>
+                            </div>
+                            <Badge variant="outline">{calendarSummary.unboundCount} 条未生成正文</Badge>
+                          </div>
+                          {calendarSummary.today ? (
+                            <div className="mt-3 rounded-lg border bg-card p-3">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div className="min-w-0">
+                                  <Badge variant="outline" className={cn("mb-2", statusTone[calendarSummary.today.status])}>
+                                    Day {calendarSummary.today.day} · {statusLabels[calendarSummary.today.status] ?? calendarSummary.today.status}
+                                  </Badge>
+                                  <div className="break-words text-sm font-semibold [overflow-wrap:anywhere]">{calendarSummary.today.topic}</div>
+                                  <p className="mt-1 text-xs text-muted-foreground">{calendarSummary.today.angle}</p>
+                                </div>
+                                <Button size="sm" onClick={() => startCalendarNoteGeneration(calendarSummary.today!)}>
+                                  <PlayCircle className="h-4 w-4" />
+                                  生成笔记
+                                </Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="mt-3 rounded-lg border border-dashed bg-card p-3 text-sm text-muted-foreground">所有排期都已发布。</div>
+                          )}
+                        </div>
+
+                        <div className="rounded-xl border bg-muted/20 p-4">
+                          <div className="text-sm font-medium">节奏概览</div>
+                          <div className="mt-3 grid grid-cols-3 gap-2 text-center text-sm">
+                            <div className="rounded-lg border bg-card p-2">
+                              <div className="text-lg font-semibold">{calendarSummary.readyCount}</div>
+                              <div className="text-xs text-muted-foreground">待发布</div>
+                            </div>
+                            <div className="rounded-lg border bg-card p-2">
+                              <div className="text-lg font-semibold">{calendarSummary.publishedCount}</div>
+                              <div className="text-xs text-muted-foreground">已发布</div>
+                            </div>
+                            <div className="rounded-lg border bg-card p-2">
+                              <div className="text-lg font-semibold">{calendarItems.length}</div>
+                              <div className="text-xs text-muted-foreground">总条目</div>
+                            </div>
+                          </div>
+                          {calendarSummary.tomorrow ? (
+                            <div className="mt-3 text-xs text-muted-foreground">
+                              明日预备：Day {calendarSummary.tomorrow.day} · {calendarSummary.tomorrow.topic}
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex flex-wrap gap-2">
+                          {(["list", "week", "month"] as const).map((mode) => (
+                            <Button
+                              key={mode}
+                              size="sm"
+                              variant={calendarViewMode === mode ? "default" : "outline"}
+                              onClick={() => setCalendarViewMode(mode)}
+                            >
+                              {mode === "list" ? "列表" : mode === "week" ? "周视图" : "月视图"}
+                            </Button>
+                          ))}
+                        </div>
+                        <select
+                          className="h-9 rounded-md border bg-card px-2 text-xs outline-none"
+                          value={calendarStatusFilter}
+                          onChange={(event) => setCalendarStatusFilter(event.target.value)}
+                        >
+                          <option value="all">全部状态</option>
+                          {calendarStatuses.map((status) => (
+                            <option key={status} value={status}>{statusLabels[status]}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {visibleCalendarItems.length > 0 ? (
+                        calendarViewMode === "list" ? (
+                          <div className="overflow-x-auto rounded-xl border">
+                            <table className="min-w-full text-sm">
+                              <thead>
+                                <tr className="border-b bg-muted/30 text-left text-muted-foreground">
+                                  <th className="py-3 pl-3 pr-3 font-medium">Day</th>
+                                  <th className="py-3 pr-3 font-medium">内容</th>
+                                  <th className="py-3 pr-3 font-medium">形式 / 目标</th>
+                                  <th className="py-3 pr-3 font-medium">状态</th>
+                                  <th className="py-3 pr-3 font-medium">操作</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {visibleCalendarItems.map((item) => (
+                                  <tr key={item.id} className="border-b align-top last:border-b-0">
+                                    <td className="py-3 pl-3 pr-3 whitespace-nowrap">Day {item.day}</td>
+                                    <td className="py-3 pr-3">
+                                      <div className="break-words font-medium [overflow-wrap:anywhere]">{item.topic}</div>
+                                      <div className="mt-1 break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">{item.angle}</div>
+                                      <div className="mt-1 text-xs text-muted-foreground">关联：{item.assetTitle ?? "未生成"}</div>
+                                    </td>
+                                    <td className="py-3 pr-3">
+                                      <div>{item.format}</div>
+                                      <div className="mt-1 text-xs text-muted-foreground">{item.goal ?? "-"}</div>
+                                    </td>
+                                    <td className="py-3 pr-3">
+                                      <select
+                                        className="h-9 rounded-md border bg-card px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                        value={item.status}
+                                        onChange={(event) => updateCalendarItem(item, { status: event.target.value })}
+                                      >
+                                        {calendarStatuses.map((status) => (
+                                          <option key={status} value={status}>
+                                            {statusLabels[status]}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </td>
+                                    <td className="py-3 pr-3">
+                                      <div className="flex flex-wrap gap-1.5">
+                                        <Button size="sm" variant="outline" onClick={() => startCalendarNoteGeneration(item)}>
+                                          <PlayCircle className="h-3.5 w-3.5" />
+                                          {item.assetTitle ? "重新生成" : "生成笔记"}
+                                        </Button>
+                                        <Button
+                                          size="icon"
+                                          variant="ghost"
+                                          className="h-9 w-9 text-destructive hover:bg-destructive/10"
+                                          onClick={() => deleteItem("calendar", item.id)}
+                                        >
+                                          <Trash2 className="h-4 w-4" />
+                                        </Button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        ) : calendarViewMode === "week" ? (
+                          <div className="space-y-3">
+                            {calendarWeeks.map((group) => (
+                              <div key={group.week} className="rounded-xl border bg-card p-3">
+                                <div className="mb-3 flex items-center justify-between gap-2">
+                                  <div className="text-sm font-semibold">第 {group.week} 周</div>
+                                  <Badge variant="outline">{group.items.length} 条</Badge>
+                                </div>
+                                <div className="grid gap-2 lg:grid-cols-2">
+                                  {group.items.map((item) => (
+                                    <div key={item.id} className="rounded-lg border bg-muted/20 p-3">
+                                      <div className="flex flex-wrap items-center justify-between gap-2">
+                                        <Badge variant="outline" className={cn("text-[10px]", statusTone[item.status])}>
+                                          Day {item.day} · {statusLabels[item.status] ?? item.status}
+                                        </Badge>
+                                        <Button size="sm" variant="ghost" onClick={() => startCalendarNoteGeneration(item)}>
+                                          <PlayCircle className="h-3.5 w-3.5" />
+                                          生成
+                                        </Button>
+                                      </div>
+                                      <div className="mt-2 break-words text-sm font-medium [overflow-wrap:anywhere]">{item.topic}</div>
+                                      <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{item.angle}</p>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-5">
+                            {visibleCalendarItems.map((item) => (
+                              <button
+                                key={item.id}
+                                type="button"
+                                className="min-h-36 rounded-xl border bg-card p-3 text-left transition-colors hover:bg-accent"
+                                onClick={() => startCalendarNoteGeneration(item)}
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="text-xs font-semibold">Day {item.day}</div>
+                                  <Badge variant="outline" className={cn("text-[10px]", statusTone[item.status])}>
+                                    {statusLabels[item.status] ?? item.status}
+                                  </Badge>
+                                </div>
+                                <div className="mt-2 line-clamp-2 text-sm font-medium">{item.topic}</div>
+                                <div className="mt-2 line-clamp-2 text-xs text-muted-foreground">{item.goal ?? item.format}</div>
+                                <div className="mt-3 text-[10px] text-muted-foreground">{item.assetTitle ? "已绑定内容" : "点击生成笔记"}</div>
+                              </button>
+                            ))}
+                          </div>
+                        )
+                      ) : (
+                        <EmptyState title="没有匹配的日历条目" description="切换状态筛选后再查看。" />
+                      )}
+                    </>
+                  ) : (
+                    <EmptyState
+                      title="还没有内容日历"
+                      description="先在 AI 生成里做一版 30 天内容日历，这里就会自动承接下来。"
+                      action={
+                        <Button onClick={() => setActiveTab("generate")}>
+                          <Sparkles className="h-4 w-4" />
+                          去生成日历
+                        </Button>
+                      }
+                    />
+                  )}
+                </CardContent>
+              </Card>
+            </div>
           ) : null}
 
           {!isBootstrapping && activeTab === "assets" ? (
@@ -3829,13 +4671,10 @@ export function Workbench() {
                           onClick={() => setActiveChatSessionId(session.id)}
                         >
                           <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
+                            <div className="min-w-0 flex-1">
                               <div className="truncate text-sm font-medium">{session.title}</div>
-                              <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                              <div className="mt-1 truncate text-xs text-muted-foreground">
                                 {lastMessage?.content ?? "还没有消息"}
-                              </div>
-                              <div className="mt-2 text-[10px] text-muted-foreground">
-                                {new Date(session.updatedAt).toLocaleString()}
                               </div>
                             </div>
                             <span
@@ -3889,9 +4728,9 @@ export function Workbench() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="min-h-[420px] max-h-[60vh] overflow-y-auto rounded-xl border bg-muted/20 p-4">
-                    {activeChatSession?.messages.length ? (
+                    {activeChatSession?.messages.length || pendingChatMessage || isChatSending ? (
                       <div className="space-y-4">
-                        {activeChatSession.messages.map((chatMessage) => {
+                        {(activeChatSession?.messages ?? []).map((chatMessage) => {
                           const isUser = chatMessage.role === "user";
                           return (
                             <div
@@ -3923,6 +4762,18 @@ export function Workbench() {
                             </div>
                           );
                         })}
+                        {pendingChatMessage ? (
+                          <div className="flex justify-end">
+                            <div className="max-w-[85%] rounded-xl border bg-primary/80 p-3 text-sm text-primary-foreground">
+                              <div className="mb-1 text-[10px] text-primary-foreground/70">
+                                你 · {new Date(pendingChatMessage.createdAt).toLocaleTimeString()}
+                              </div>
+                              <div className="whitespace-pre-wrap break-words leading-relaxed [overflow-wrap:anywhere]">
+                                {pendingChatMessage.content}
+                              </div>
+                            </div>
+                          </div>
+                        ) : null}
                         {isChatSending ? (
                           <div className="flex justify-start">
                             <div className="rounded-xl border bg-card p-3 text-sm text-muted-foreground">
@@ -3931,6 +4782,7 @@ export function Workbench() {
                             </div>
                           </div>
                         ) : null}
+                        <div ref={chatMessagesEndRef} />
                       </div>
                     ) : (
                       <EmptyState
@@ -3941,20 +4793,33 @@ export function Workbench() {
                   </div>
 
                   <div className="space-y-2">
+                    <div className="flex flex-wrap gap-2">
+                      {chatQuickPrompts.map((prompt) => (
+                        <button
+                          key={prompt}
+                          type="button"
+                          className="rounded-full border bg-card px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                          onClick={() => setChatInput(prompt)}
+                        >
+                          {prompt}
+                        </button>
+                      ))}
+                    </div>
                     <Textarea
                       className="min-h-28"
                       value={chatInput}
                       onChange={(event) => setChatInput(event.target.value)}
                       placeholder="比如：帮我把这篇宠物玩具笔记改得更像真人分享，别太硬广..."
                       onKeyDown={(event) => {
-                        if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+                        if (event.nativeEvent.isComposing) return;
+                        if (event.key === "Enter" && !event.shiftKey) {
                           event.preventDefault();
                           void sendChatMessage();
                         }
                       }}
                     />
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="text-xs text-muted-foreground">Ctrl / Cmd + Enter 发送</div>
+                      <div className="text-xs text-muted-foreground">Enter 发送，Shift + Enter 换行</div>
                       <Button disabled={isChatSending || !chatInput.trim()} onClick={sendChatMessage}>
                         {isChatSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageSquare className="h-4 w-4" />}
                         发送
